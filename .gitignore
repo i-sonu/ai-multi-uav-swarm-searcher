@@ -1,0 +1,45 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- Virtual environments ---
+venv/
+.venv/
+env/
+ENV/
+
+# --- Datasets & model weights (never commit) ---
+data/
+datasets/
+*.pt
+*.pth
+*.onnx
+*.weights
+*.h5
+
+# --- Results: ignore raw runs, keep curated finals ---
+results/raw/
+!results/figures/.gitkeep
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+
+# --- IDE / editor ---
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+
+# --- Test / coverage cache ---
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/

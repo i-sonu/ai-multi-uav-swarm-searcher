@@ -1,0 +1,62 @@
+# Default configuration for ai-uav-swarm-searcher.
+# All constants live here — no hardcoded values in source (per CLAUDE.md §3).
+# Every experiment takes a seed; the same seed must reproduce identical results.
+
+seed: 0
+
+# --- Grid / world ---
+grid:
+  # Cell occupancy encoding (must match src usage exactly).
+  unknown: -1
+  free: 0
+  occupied: 1
+  resolution_m: 0.25          # metres per cell
+  env_size_m: 60.0            # square environment edge length in metres
+  # -> 60 m / 0.25 m = 240 cells per side
+  cells_per_side: 240
+
+# --- Map generation ---
+map:
+  kind: office                # one of: office | maze | open_field | cluttered
+  border_wall: true           # always add a solid 1-cell border
+
+# --- LiDAR sensor ---
+lidar:
+  n_beams: 360
+  max_range_m: 12.0
+
+# --- Camera (used from Phase 5) ---
+camera:
+  width: 640
+  height: 480
+  rate_hz: 5
+
+# --- Planning ---
+planning:
+  connectivity: 8             # 8-connected grid
+  diagonal_cost: 1.4142135623730951   # sqrt(2)
+  planner: astar              # astar | bfs | dfs | ucs (swappable)
+  treat_unknown_as_free: true # optimistic exploration (documented choice)
+
+# --- Frontier detection / clustering ---
+frontier:
+  min_cluster_size: 3         # discard clusters smaller than this (sensor noise)
+
+# --- Agents ---
+agents:
+  n_agents: 2                 # headline config; supports 1 and 3 for ablations
+
+# --- Exploration loop ---
+exploration:
+  max_steps: 5000
+  blacklist_after_failures: 3 # blacklist a frontier after N failed plans
+  replan_every: 10            # re-run allocation every N steps (Phase 4)
+
+# --- Task allocation (Phase 4) ---
+allocation:
+  method: hungarian           # none | greedy | hungarian | auction
+  lambda_cost: 1.0            # score = utility - lambda * cost
+
+# --- Coverage / termination ---
+coverage:
+  target_pct: 95.0            # exploration success threshold

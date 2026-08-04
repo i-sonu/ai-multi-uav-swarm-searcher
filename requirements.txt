@@ -1,0 +1,12 @@
+# Phase 1-4 dependencies only.
+# Phase 5 will add: torch, torchvision, ultralytics
+# Phase 6 will add: ROS 2 (Humble/Jazzy) + Gazebo (installed separately, not via pip)
+# Do NOT add heavy ML/robotics deps here before the phase that needs them.
+
+numpy>=1.24
+matplotlib>=3.7
+scipy>=1.10
+opencv-python>=4.8
+pandas>=2.0
+pyyaml>=6.0
+tqdm>=4.65
