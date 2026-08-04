@@ -15,12 +15,12 @@ plans so the agent does not loop forever chasing a goal it cannot plan to.
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 import numpy as np
 
-from src.constants import GT_FREE, OCCUPIED
+from src.constants import FREE, GT_FREE, OCCUPIED
 from src.frontier.clustering import cluster_frontiers
 from src.frontier.detection import find_frontiers
 from src.planning.common import neighbors
@@ -33,6 +33,10 @@ class ExplorationResult:
     reached_goals: int         # how many frontier goals the agent drove to
     blacklisted: int           # frontier goals abandoned as unreachable
     reason: str                # "explored" | "step_limit" | "stuck"
+    # --- optional instrumentation (populated only when collect_metrics=True) ---
+    coverage_series: list = field(default_factory=list)      # coverage % per step
+    plan_nodes: list = field(default_factory=list)           # nodes expanded per planner call
+    plan_wallclock: list = field(default_factory=list)       # seconds per planner call
 
 
 def reachable_free_mask(ground_truth: np.ndarray, start: tuple[int, int]) -> np.ndarray:
@@ -62,6 +66,17 @@ def count_reachable_free(ground_truth: np.ndarray, start: tuple[int, int]) -> in
     return int(reachable_free_mask(ground_truth, start).sum())
 
 
+def center_free_cell(ground_truth: np.ndarray) -> tuple[int, int]:
+    """Pick the ground-truth free cell nearest the map centre as a start pose.
+
+    A fixed, deterministic choice so runs are reproducible from the seed alone.
+    """
+    free = np.argwhere(ground_truth == GT_FREE)
+    centre = np.array(ground_truth.shape) / 2.0
+    r, c = free[int(((free - centre) ** 2).sum(axis=1).argmin())]
+    return int(r), int(c)
+
+
 def explore(
     ground_truth: np.ndarray,
     grid,
@@ -75,12 +90,29 @@ def explore(
     blacklist_after_failures: int = 3,
     treat_unknown_as_free: bool = True,
     on_step: Callable[[int], None] | None = None,
+    collect_metrics: bool = False,
 ) -> ExplorationResult:
-    """Run autonomous exploration for a single agent. Mutates ``grid``/``agent``."""
+    """Run autonomous exploration for a single agent. Mutates ``grid``/``agent``.
+
+    When ``collect_metrics`` is True, the returned result carries a per-step
+    coverage series and per-planner-call node/wall-clock lists (used by the
+    experiment runner). It is off by default to keep unit tests fast.
+    """
+    result = ExplorationResult(False, 0, 0, 0, "step_limit")
+
+    # Reachable-free mask defines the coverage denominator; compute once.
+    reachable = reachable_free_mask(ground_truth, grid.world_to_grid(agent.x, agent.y))
+    reachable_count = int(reachable.sum())
 
     def _sense() -> None:
         obs = agent.sense(ground_truth, n_beams=n_beams, max_range=max_range)
         grid.apply_observations(obs, agent_id=agent.id)
+
+    def _log_step() -> None:
+        if not collect_metrics:
+            return
+        known = int(((grid.grid == FREE) & reachable).sum())
+        result.coverage_series.append(100.0 * known / reachable_count if reachable_count else 0.0)
 
     _sense()  # reveal the surroundings of the start pose
 
@@ -88,6 +120,14 @@ def explore(
     reached = 0
     failures: dict[tuple[int, int], int] = defaultdict(int)
     blacklist: set[tuple[int, int]] = set()
+
+    def _finish(reason: str) -> ExplorationResult:
+        result.steps = step
+        result.reached_goals = reached
+        result.blacklisted = len(blacklist)
+        result.reason = reason
+        result.done = reason == "explored"
+        return result
 
     while step < max_steps:
         mask = find_frontiers(grid.grid)
@@ -104,7 +144,7 @@ def explore(
             goals = [c.representative for c in clusters if c.representative not in blacklist]
 
         if not goals:
-            return ExplorationResult(True, step, reached, len(blacklist), "explored")
+            return _finish("explored")
 
         start = grid.world_to_grid(agent.x, agent.y)
         # Nearest cluster first (straight-line). Planning cost would be more
@@ -113,8 +153,11 @@ def explore(
 
         moved = False
         for goal in goals:
-            result = planner(grid.grid, start, goal, treat_unknown_as_free)
-            if result.path is None or len(result.path) < 2:
+            plan = planner(grid.grid, start, goal, treat_unknown_as_free)
+            if collect_metrics:
+                result.plan_nodes.append(plan.nodes_expanded)
+                result.plan_wallclock.append(plan.wall_clock)
+            if plan.path is None or len(plan.path) < 2:
                 failures[goal] += 1
                 if failures[goal] >= blacklist_after_failures:
                     blacklist.add(goal)
@@ -122,7 +165,7 @@ def explore(
 
             # Execute the plan, re-sensing each step. Stop early if a freshly
             # discovered wall now blocks the next cell (then we replan).
-            agent.set_path(result.path)
+            agent.set_path(plan.path)
             agent.path_idx = 1  # path[0] is the current cell
             while agent.has_path() and step < max_steps:
                 nr, nc = agent.path[agent.path_idx]
@@ -131,6 +174,7 @@ def explore(
                 agent.step()
                 _sense()
                 step += 1
+                _log_step()
                 if on_step is not None:
                     on_step(step)
             reached += 1
@@ -142,6 +186,6 @@ def explore(
             # will be blacklisted; once all are, the next round terminates. If
             # somehow none get blacklisted we would spin, so guard against it.
             if all(g in blacklist for g in goals) or not failures:
-                return ExplorationResult(False, step, reached, len(blacklist), "stuck")
+                return _finish("stuck")
 
-    return ExplorationResult(False, step, reached, len(blacklist), "step_limit")
+    return _finish("step_limit")

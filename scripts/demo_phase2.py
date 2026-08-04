@@ -21,20 +21,11 @@ import numpy as np
 
 from src.agents.agent import Agent
 from src.config import load_config
-from src.constants import FREE, GT_FREE
-from src.exploration.explorer import explore, reachable_free_mask
+from src.constants import FREE
+from src.exploration.explorer import center_free_cell, explore, reachable_free_mask
 from src.mapping.occupancy_grid import OccupancyGrid
 from src.planning.registry import get_planner
 from src.world.map_generator import generate_map
-
-
-def pick_start(gt: np.ndarray) -> tuple[int, int]:
-    """Choose a free start cell nearest the map centre."""
-    free = np.argwhere(gt == GT_FREE)
-    centre = np.array(gt.shape) / 2.0
-    d2 = ((free - centre) ** 2).sum(axis=1)
-    r, c = free[int(np.argmin(d2))]
-    return int(r), int(c)
 
 
 def coverage_report(grid: OccupancyGrid, gt: np.ndarray, start: tuple[int, int]) -> tuple[float, int, int]:
@@ -67,7 +58,7 @@ def main() -> None:
 
     gt = generate_map(args.map, args.size, args.seed)
     grid = OccupancyGrid(args.size, args.size, resolution=res)
-    start = pick_start(gt)
+    start = center_free_cell(gt)
     agent = Agent(0, (start[1] * res, start[0] * res, 0.0), resolution=res)
     planner = get_planner(args.planner)
 
