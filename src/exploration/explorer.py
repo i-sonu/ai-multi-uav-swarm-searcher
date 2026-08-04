@@ -182,9 +182,16 @@ def explore(
             break
 
         if not moved:
-            # Every candidate failed to plan this round. They accrue failures and
-            # will be blacklisted; once all are, the next round terminates. If
-            # somehow none get blacklisted we would spin, so guard against it.
+            # No candidate frontier could be planned to this round. Once every
+            # current frontier is blacklisted, the agent is genuinely trapped and
+            # we stop ("stuck"). This is a real terminal state, not a safeguard:
+            # LiDAR marks cells FREE that it can *see*, but movement is
+            # 8-connected with no corner cutting, so in width-1 corridors rays
+            # slip diagonally past walls and create frontiers in pockets the
+            # agent cannot actually drive into. When all reachable frontiers are
+            # exhausted and only such isolated pockets remain, exploration ends
+            # here with < 100% coverage (notably common under DFS, whose long
+            # detours strand the agent in a corner).
             if all(g in blacklist for g in goals) or not failures:
                 return _finish("stuck")
 

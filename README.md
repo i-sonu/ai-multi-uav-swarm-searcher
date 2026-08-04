@@ -79,16 +79,26 @@ docs/           written results and analysis
 
 ## Status
 
-**Phase 2 complete** — single-agent autonomous exploration: frontier detection +
-clustering, hand-written A\*/BFS/DFS/UCS planners, and a frontier-driven
-exploration loop reaching 100% coverage on office/open_field/maze. Subsequent
-phases (benchmarking, two-agent coordination, detection) are built and reviewed
-in order.
+**Phase 3 complete** — metrics, headless experiment runner, and the first
+reportable result (Experiment E1: planner comparison over 480 held-out runs).
+Subsequent phases (two-agent coordination, detection) are built and reviewed in
+order.
+
+## Reproduce experiments
+
+```bash
+python -m scripts.run_e1        # E1 planner sweep -> results/raw/e1_*.csv (parallel)
+python -m scripts.plot_e1       # -> results/figures/e1_*.png
+```
 
 ## Results
 
-_To be populated from Phase 3 onward. Experiments E1–E5 and their figures will
-be summarised here and in `docs/`._
+**E1 — planner comparison** (A\* vs BFS vs DFS vs UCS, 4 maps × 30 held-out
+seeds, 480 runs). A\* reaches the same coverage and near-identical path length as
+UCS/BFS while expanding **~8× fewer nodes** (171 vs ~1400 per call) and running
+**~7× faster**. DFS is a poor exploration planner — 2.4× longer paths and only
+**25.9%** coverage on mazes (it strands the agent). Full write-up:
+[`docs/results_e1.md`](docs/results_e1.md); figures in `results/figures/`.
 
 ## License
 
