@@ -22,6 +22,29 @@ python -c "import src"   # sanity check
 `requirements.txt` covers Phases 1–4 only. Heavy dependencies (PyTorch for
 detection in Phase 5; ROS 2 / Gazebo in Phase 6) are installed later, per phase.
 
+> **Note (this machine):** ROS 2 is sourced into the shell, which puts `/opt/ros`
+> on `PYTHONPATH`. Always run inside the venv. The test wrapper
+> (`scripts/test.sh`) clears `PYTHONPATH` and disables third-party pytest plugin
+> autoloading so the ROS `launch_testing` plugin doesn't interfere.
+
+## Run the Phase 1 demo
+
+One drone follows a fixed patrol path while its LiDAR reveals the map:
+
+```bash
+source venv/bin/activate
+python -m scripts.demo_phase1                       # live window
+python -m scripts.demo_phase1 --map office --seed 1 # pick map / seed
+python -m scripts.demo_phase1 --save results/raw/demo.gif --no-show  # headless
+```
+
+## Test
+
+```bash
+./scripts/test.sh        # runs pytest in the venv (ROS-safe)
+pip install -r requirements-dev.txt   # if pytest is missing
+```
+
 ## Repository layout
 
 ```
@@ -44,9 +67,10 @@ docs/           written results and analysis
 
 ## Status
 
-**Phase 0 complete** — repository skeleton, config, and dataset-loader stub in
-place. Subsequent phases (simulator core, autonomous exploration, benchmarking,
-two-agent coordination, detection) are built and reviewed in order.
+**Phase 1 complete** — 2-D simulator core: map generation, shared occupancy
+grid, LiDAR ray casting, agent model, rendering, and a single-agent patrol demo.
+Subsequent phases (autonomous exploration, benchmarking, two-agent coordination,
+detection) are built and reviewed in order.
 
 ## Results
 
