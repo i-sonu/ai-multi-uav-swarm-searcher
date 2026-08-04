@@ -27,16 +27,28 @@ detection in Phase 5; ROS 2 / Gazebo in Phase 6) are installed later, per phase.
 > (`scripts/test.sh`) clears `PYTHONPATH` and disables third-party pytest plugin
 > autoloading so the ROS `launch_testing` plugin doesn't interfere.
 
-## Run the Phase 1 demo
+## Run the demos
 
-One drone follows a fixed patrol path while its LiDAR reveals the map:
+**Phase 1** — one drone on a fixed patrol, LiDAR revealing the map:
 
 ```bash
 source venv/bin/activate
-python -m scripts.demo_phase1                       # live window
-python -m scripts.demo_phase1 --map office --seed 1 # pick map / seed
+python -m scripts.demo_phase1 --map office            # live window
 python -m scripts.demo_phase1 --save results/raw/demo.gif --no-show  # headless
 ```
+
+**Phase 2** — one drone *autonomously* explores (frontiers → A* → move → repeat):
+
+```bash
+python -m scripts.demo_phase2 --map office           # A* by default
+python -m scripts.demo_phase2 --map maze --size 120  # smaller maze finishes sooner
+python -m scripts.demo_phase2 --planner bfs --no-show # swap planner, headless
+```
+
+> A 240×240 **maze** has ~28k reachable cells and width-1 corridors reveal little
+> per step, so full coverage needs a large step budget (`--max-steps`, ~90k).
+> Office/open_field maps at 240 finish in ~1.5–2k steps. Use a smaller `--size`
+> for a quick live maze demo.
 
 ## Test
 
@@ -67,10 +79,11 @@ docs/           written results and analysis
 
 ## Status
 
-**Phase 1 complete** — 2-D simulator core: map generation, shared occupancy
-grid, LiDAR ray casting, agent model, rendering, and a single-agent patrol demo.
-Subsequent phases (autonomous exploration, benchmarking, two-agent coordination,
-detection) are built and reviewed in order.
+**Phase 2 complete** — single-agent autonomous exploration: frontier detection +
+clustering, hand-written A\*/BFS/DFS/UCS planners, and a frontier-driven
+exploration loop reaching 100% coverage on office/open_field/maze. Subsequent
+phases (benchmarking, two-agent coordination, detection) are built and reviewed
+in order.
 
 ## Results
 
