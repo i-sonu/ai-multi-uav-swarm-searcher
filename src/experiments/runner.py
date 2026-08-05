@@ -1,15 +1,8 @@
-"""Headless experiment runner (CLAUDE.md Phase 3.3).
+"""Headless experiment runner (CLAUDE.md Phase 3 & Phase 4).
 
-Runs any ``(planner, map_kind, seed, n_agents)`` combination with no rendering,
-collects the §5 metrics, and writes tidy CSVs to ``results/raw/``. Supports
-parallel execution across runs.
-
-Determinism: every run is fully determined by its ``(map_kind, seed, size)`` —
-the map is seeded, the start pose is a fixed function of the map, and planning is
-deterministic. Parallelism therefore never changes results.
-
-Phase 3 is single-agent (``n_agents=1``); the signature already carries
-``n_agents`` so Phase 4 can extend it without changing callers.
+Runs any ``(planner, map_kind, seed, n_agents, allocation_method, lambda_val)``
+combination with no rendering, collects §5 metrics, and writes tidy CSVs to
+``results/raw/``. Supports parallel execution across runs.
 """
 
 from __future__ import annotations
@@ -24,13 +17,14 @@ import numpy as np
 
 from src.agents.agent import Agent
 from src.config import REPO_ROOT
-from src.exploration.explorer import center_free_cell, explore, reachable_free_mask
+from src.exploration.explorer import center_free_cell, explore_multi, reachable_free_mask
 from src.mapping.occupancy_grid import OccupancyGrid
 from src.metrics.metrics import (
     coverage_percentage,
     nodes_expanded_stats,
     planning_wallclock_stats,
     time_to_coverage,
+    total_path_length,
 )
 from src.planning.registry import get_planner
 from src.world.map_generator import generate_map
@@ -42,6 +36,8 @@ class RunConfig:
     map_kind: str
     seed: int
     n_agents: int = 1
+    allocation_method: str = "hungarian"
+    lambda_val: float = 0.5
     size: int = 240
     resolution: float = 0.25
     n_beams: int = 360
@@ -56,6 +52,8 @@ class RunRecord:
     map_kind: str
     seed: int
     n_agents: int
+    allocation_method: str
+    lambda_val: float
     size: int
     reason: str
     steps: int
@@ -73,25 +71,35 @@ class RunRecord:
 
 def run_single(cfg: RunConfig) -> tuple[RunRecord, list[float]]:
     """Execute one exploration run; return its summary record and coverage series."""
-    if cfg.n_agents != 1:
-        raise NotImplementedError("multi-agent runs arrive in Phase 4")
-
     t0 = time.perf_counter()
     gt = generate_map(cfg.map_kind, cfg.size, cfg.seed)
     grid = OccupancyGrid(cfg.size, cfg.size, resolution=cfg.resolution)
-    start = center_free_cell(gt)
-    agent = Agent(0, (start[1] * cfg.resolution, start[0] * cfg.resolution, 0.0), resolution=cfg.resolution)
+    start_r, start_c = center_free_cell(gt)
+
+    # Spawn N agents near the start center cell
+    agents = []
+    for i in range(cfg.n_agents):
+        # Shift initial placement slightly so agents do not occupy exact same spot
+        dr = i % 2
+        dc = i // 2
+        ar, ac = start_r + dr, start_c + dc
+        if not (0 <= ar < cfg.size and 0 <= ac < cfg.size and gt[ar, ac] == 0):
+            ar, ac = start_r, start_c
+        agents.append(Agent(i, (ac * cfg.resolution, ar * cfg.resolution, 0.0), resolution=cfg.resolution))
+
     planner = get_planner(cfg.planner)
 
-    result = explore(
-        gt, grid, agent, planner,
+    result = explore_multi(
+        gt, grid, agents, planner,
+        allocation_method=cfg.allocation_method,
+        lambda_val=cfg.lambda_val,
         n_beams=cfg.n_beams, max_range=cfg.max_range,
         min_cluster_size=cfg.min_cluster_size, max_steps=cfg.max_steps,
         collect_metrics=True,
     )
     wall = time.perf_counter() - t0
 
-    reachable = reachable_free_mask(gt, start)
+    reachable = reachable_free_mask(gt, (start_r, start_c))
     final_cov = coverage_percentage(grid.grid, reachable)
     node_stats = nodes_expanded_stats(result.plan_nodes)
     wc_stats = planning_wallclock_stats(result.plan_wallclock)
@@ -101,12 +109,14 @@ def run_single(cfg: RunConfig) -> tuple[RunRecord, list[float]]:
         map_kind=cfg.map_kind,
         seed=cfg.seed,
         n_agents=cfg.n_agents,
+        allocation_method=cfg.allocation_method,
+        lambda_val=cfg.lambda_val,
         size=cfg.size,
         reason=result.reason,
         steps=result.steps,
         final_coverage=round(final_cov, 3),
         time_to_90=time_to_coverage(result.coverage_series, 90.0),
-        path_length_m=round(agent.distance_travelled, 3),
+        path_length_m=round(total_path_length(agents), 3),
         redundant_ratio=round(grid.redundant_coverage_ratio(), 4),
         nodes_total=node_stats["total"],
         nodes_mean=round(node_stats["mean"], 2),
@@ -134,15 +144,7 @@ def run_batch(
     step_stride: int = 10,
     progress: bool = True,
 ):
-    """Run many configs (optionally in parallel) and write CSV output.
-
-    Args:
-        summary_csv: one row per run (the §5 metrics).
-        steps_csv: optional coverage-over-time, downsampled every ``step_stride``
-            steps (for the coverage curves). Skipped if None.
-        n_workers: parallel processes (1 = serial, easiest to debug).
-        step_stride: downsample factor for the per-step coverage CSV.
-    """
+    """Run many configs (optionally in parallel) and write CSV output."""
     summary_csv = Path(summary_csv)
     summary_csv.parent.mkdir(parents=True, exist_ok=True)
 
@@ -152,16 +154,16 @@ def run_batch(
             for i, out in enumerate(pool.imap_unordered(_worker, configs), 1):
                 results.append(out)
                 if progress:
-                    print(f"  [{i}/{len(configs)}] {out[0].map_kind} {out[0].planner} seed={out[0].seed}")
+                    print(f"  [{i}/{len(configs)}] {out[0].map_kind} {out[0].planner} method={out[0].allocation_method} seed={out[0].seed}")
     else:
         for i, cfg in enumerate(configs, 1):
             out = run_single(cfg)
             results.append(out)
             if progress:
-                print(f"  [{i}/{len(configs)}] {out[0].map_kind} {out[0].planner} seed={out[0].seed} "
+                print(f"  [{i}/{len(configs)}] {out[0].map_kind} {out[0].planner} method={out[0].allocation_method} seed={out[0].seed} "
                       f"cov={out[0].final_coverage:.1f}% steps={out[0].steps}")
 
-    # Summary CSV.
+    # Summary CSV
     fields = list(asdict(results[0][0]).keys())
     with open(summary_csv, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
@@ -169,18 +171,17 @@ def run_batch(
         for record, _ in results:
             w.writerow(asdict(record))
 
-    # Per-step coverage CSV (downsampled).
+    # Per-step coverage CSV
     if steps_csv is not None:
         steps_csv = Path(steps_csv)
         with open(steps_csv, "w", newline="") as f:
             w = csv.writer(f)
-            w.writerow(["planner", "map_kind", "seed", "step", "coverage"])
+            w.writerow(["planner", "map_kind", "seed", "allocation_method", "step", "coverage"])
             for record, series in results:
                 for i in range(0, len(series), step_stride):
-                    w.writerow([record.planner, record.map_kind, record.seed, i + 1, round(series[i], 3)])
-                # Always include the final point so curves end at the true value.
+                    w.writerow([record.planner, record.map_kind, record.seed, record.allocation_method, i + 1, round(series[i], 3)])
                 if series and (len(series) - 1) % step_stride != 0:
-                    w.writerow([record.planner, record.map_kind, record.seed, len(series), round(series[-1], 3)])
+                    w.writerow([record.planner, record.map_kind, record.seed, record.allocation_method, len(series), round(series[-1], 3)])
 
     return [r for r, _ in results]
 

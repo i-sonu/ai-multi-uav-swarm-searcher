@@ -1,15 +1,15 @@
-"""Single-agent autonomous exploration loop (CLAUDE.md Phase 2.5).
+"""Single-agent and Multi-agent autonomous exploration loop (CLAUDE.md Phase 2 & 4).
 
 The loop, each round:
-    1. sense from the agent into the shared occupancy grid,
+    1. sense from all agents into the shared occupancy grid,
     2. detect frontiers and cluster them into candidate goals,
-    3. pick the nearest cluster (by straight-line distance),
-    4. plan a path to it with the configured planner,
-    5. move the agent along that path, sensing at every step,
+    3. allocate frontiers to agents using allocation strategy (none, greedy, hungarian),
+    4. plan paths to assigned frontiers with the configured planner,
+    5. move agents along their paths, sensing at every step,
     6. repeat until no frontiers remain (map explored) or a step limit is hit.
 
 Unreachable frontiers are blacklisted after ``blacklist_after_failures`` failed
-plans so the agent does not loop forever chasing a goal it cannot plan to.
+plans so agents do not loop forever chasing goals they cannot plan to.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ import numpy as np
 from src.constants import FREE, GT_FREE, OCCUPIED
 from src.frontier.clustering import cluster_frontiers
 from src.frontier.detection import find_frontiers
+from src.planning.allocation import allocate, build_cost_matrix, build_utility_matrix
 from src.planning.common import neighbors
 
 
@@ -53,7 +54,6 @@ def reachable_free_mask(ground_truth: np.ndarray, start: tuple[int, int]) -> np.
     stack = [start]
     while stack:
         r, c = stack.pop()
-        # treat_unknown_as_free=True on a 0/1 GT map means "free cells only".
         for nr, nc, _step in neighbors(ground_truth, r, c, treat_unknown_as_free=True):
             if not mask[nr, nc]:
                 mask[nr, nc] = True
@@ -67,10 +67,7 @@ def count_reachable_free(ground_truth: np.ndarray, start: tuple[int, int]) -> in
 
 
 def center_free_cell(ground_truth: np.ndarray) -> tuple[int, int]:
-    """Pick the ground-truth free cell nearest the map centre as a start pose.
-
-    A fixed, deterministic choice so runs are reproducible from the seed alone.
-    """
+    """Pick the ground-truth free cell nearest the map centre as a start pose."""
     free = np.argwhere(ground_truth == GT_FREE)
     centre = np.array(ground_truth.shape) / 2.0
     r, c = free[int(((free - centre) ** 2).sum(axis=1).argmin())]
@@ -92,21 +89,56 @@ def explore(
     on_step: Callable[[int], None] | None = None,
     collect_metrics: bool = False,
 ) -> ExplorationResult:
-    """Run autonomous exploration for a single agent. Mutates ``grid``/``agent``.
+    """Run autonomous exploration for a single agent. Mutates ``grid``/``agent``."""
+    return explore_multi(
+        ground_truth,
+        grid,
+        [agent],
+        planner,
+        allocation_method="none",
+        n_beams=n_beams,
+        max_range=max_range,
+        min_cluster_size=min_cluster_size,
+        max_steps=max_steps,
+        blacklist_after_failures=blacklist_after_failures,
+        treat_unknown_as_free=treat_unknown_as_free,
+        on_step=on_step,
+        collect_metrics=collect_metrics,
+    )
 
-    When ``collect_metrics`` is True, the returned result carries a per-step
-    coverage series and per-planner-call node/wall-clock lists (used by the
-    experiment runner). It is off by default to keep unit tests fast.
-    """
+
+def explore_multi(
+    ground_truth: np.ndarray,
+    grid,
+    agents: list,
+    planner: Callable,
+    *,
+    allocation_method: str = "hungarian",
+    lambda_val: float = 0.5,
+    n_beams: int = 360,
+    max_range: float = 12.0,
+    min_cluster_size: int = 3,
+    max_steps: int = 5000,
+    blacklist_after_failures: int = 3,
+    treat_unknown_as_free: bool = True,
+    on_step: Callable[[int], None] | None = None,
+    collect_metrics: bool = False,
+) -> ExplorationResult:
+    """Run multi-agent autonomous exploration for N agents. Mutates ``grid`` and ``agents``."""
     result = ExplorationResult(False, 0, 0, 0, "step_limit")
 
-    # Reachable-free mask defines the coverage denominator; compute once.
-    reachable = reachable_free_mask(ground_truth, grid.world_to_grid(agent.x, agent.y))
+    if not agents:
+        return result
+
+    # Coverage denominator from first agent's starting reachable mask
+    start_grid = grid.world_to_grid(agents[0].x, agents[0].y)
+    reachable = reachable_free_mask(ground_truth, start_grid)
     reachable_count = int(reachable.sum())
 
-    def _sense() -> None:
-        obs = agent.sense(ground_truth, n_beams=n_beams, max_range=max_range)
-        grid.apply_observations(obs, agent_id=agent.id)
+    def _sense_all() -> None:
+        for a in agents:
+            obs = a.sense(ground_truth, n_beams=n_beams, max_range=max_range)
+            grid.apply_observations(obs, agent_id=a.id)
 
     def _log_step() -> None:
         if not collect_metrics:
@@ -114,7 +146,7 @@ def explore(
         known = int(((grid.grid == FREE) & reachable).sum())
         result.coverage_series.append(100.0 * known / reachable_count if reachable_count else 0.0)
 
-    _sense()  # reveal the surroundings of the start pose
+    _sense_all()
 
     step = 0
     reached = 0
@@ -134,11 +166,6 @@ def explore(
         clusters = cluster_frontiers(mask, min_cluster_size)
         goals = [c.representative for c in clusters if c.representative not in blacklist]
 
-        # Fallback for thin-corridor maps (e.g. mazes): width-1 corridors produce
-        # 1-2 cell frontier clusters that the min_cluster_size noise filter would
-        # discard, prematurely ending exploration. If size-filtering removed every
-        # goal but raw frontiers still exist, retry without the filter so we never
-        # dead-end while reachable unknown space remains.
         if not goals:
             clusters = cluster_frontiers(mask, min_cluster_size=1)
             goals = [c.representative for c in clusters if c.representative not in blacklist]
@@ -146,53 +173,60 @@ def explore(
         if not goals:
             return _finish("explored")
 
-        start = grid.world_to_grid(agent.x, agent.y)
-        # Nearest cluster first (straight-line). Planning cost would be more
-        # accurate but far more expensive; nearest-centroid is the Phase 2 rule.
-        goals.sort(key=lambda g: (g[0] - start[0]) ** 2 + (g[1] - start[1]) ** 2)
+        # Build Cost and Utility matrices for active goals
+        cost_matrix = build_cost_matrix(agents, goals, grid, planner_fn=planner)
+        utility_vector = build_utility_matrix(grid, goals, sensor_range=max_range)
 
-        moved = False
-        for goal in goals:
-            plan = planner(grid.grid, start, goal, treat_unknown_as_free)
-            if collect_metrics:
-                result.plan_nodes.append(plan.nodes_expanded)
-                result.plan_wallclock.append(plan.wall_clock)
-            if plan.path is None or len(plan.path) < 2:
-                failures[goal] += 1
-                if failures[goal] >= blacklist_after_failures:
-                    blacklist.add(goal)
-                continue
+        # Allocate goals to agents
+        assignments = allocate(cost_matrix, utility_vector, method=allocation_method, lambda_val=lambda_val)
 
-            # Execute the plan, re-sensing each step. Stop early if a freshly
-            # discovered wall now blocks the next cell (then we replan).
-            agent.set_path(plan.path)
-            agent.path_idx = 1  # path[0] is the current cell
-            while agent.has_path() and step < max_steps:
-                nr, nc = agent.path[agent.path_idx]
-                if grid.grid[nr, nc] == OCCUPIED:
-                    break
-                agent.step()
-                _sense()
-                step += 1
-                _log_step()
-                if on_step is not None:
-                    on_step(step)
-            reached += 1
-            moved = True
-            break
+        assigned_any = False
+        for i, a in enumerate(agents):
+            goal_idx = assignments[i]
+            if goal_idx != -1 and goal_idx < len(goals):
+                goal = goals[goal_idx]
+                start = grid.world_to_grid(a.x, a.y)
+                plan = planner(grid.grid, start, goal, treat_unknown_as_free)
+                if collect_metrics:
+                    result.plan_nodes.append(plan.nodes_expanded)
+                    result.plan_wallclock.append(plan.wall_clock)
+                if plan.path is not None and len(plan.path) >= 2:
+                    a.set_path(plan.path)
+                    a.path_idx = 1
+                    assigned_any = True
+                else:
+                    failures[goal] += 1
+                    if failures[goal] >= blacklist_after_failures:
+                        blacklist.add(goal)
 
-        if not moved:
-            # No candidate frontier could be planned to this round. Once every
-            # current frontier is blacklisted, the agent is genuinely trapped and
-            # we stop ("stuck"). This is a real terminal state, not a safeguard:
-            # LiDAR marks cells FREE that it can *see*, but movement is
-            # 8-connected with no corner cutting, so in width-1 corridors rays
-            # slip diagonally past walls and create frontiers in pockets the
-            # agent cannot actually drive into. When all reachable frontiers are
-            # exhausted and only such isolated pockets remain, exploration ends
-            # here with < 100% coverage (notably common under DFS, whose long
-            # detours strand the agent in a corner).
+        if not assigned_any:
             if all(g in blacklist for g in goals) or not failures:
                 return _finish("stuck")
+            # If no agent could plan to their current goal, continue to next step iteration
+            step += 1
+            _sense_all()
+            _log_step()
+            continue
+
+        # Execute paths step by step across all active agents
+        steps_in_round = 0
+        max_round_steps = max(len(a.path) - 1 for a in agents if a.has_path()) if any(a.has_path() for a in agents) else 0
+
+        while any(a.has_path() for a in agents) and step < max_steps and steps_in_round < max_round_steps:
+            for a in agents:
+                if a.has_path():
+                    nr, nc = a.path[a.path_idx]
+                    if grid.grid[nr, nc] == OCCUPIED:
+                        a.clear_path()
+                    else:
+                        a.step()
+                        if not a.has_path():
+                            reached += 1
+            _sense_all()
+            step += 1
+            steps_in_round += 1
+            _log_step()
+            if on_step is not None:
+                on_step(step)
 
     return _finish("step_limit")
