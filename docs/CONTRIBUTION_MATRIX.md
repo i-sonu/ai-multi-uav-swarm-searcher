@@ -1,25 +1,25 @@
 # Project Contribution Matrix & Work Breakdown Structure (WBS)
 
-**Project Name:** Utility-Driven Coordinated Multi-UAV Exploration with Target Detection and Localization  
+**Project Title:** Utility-Driven Coordinated Multi-UAV Exploration with Target Detection and Localization  
 **Course:** BCSE306L - Artificial Intelligence (Digital Assignment 1)  
 **Faculty:** VIJAYAPRABHAKARAN  
 **Repository:** https://github.com/i-sonu/ai-multi-uav-swarm-searcher  
-**Contributors:**  
-- **Adarsh H Pillai (24BRS1082):** Swarm Systems, Benchmarking & Infrastructure Lead  
+**Team Members:**  
 - **SaiAmirthesh (24BYB):** Lead AI Systems & Search Architect  
+- **Adarsh H Pillai (24BRS1082):** Swarm Systems, Benchmarking & Infrastructure Lead  
 
 ---
 
-## 1. Role Descriptions & Effort Distribution
+## 1. Overview & Role Descriptions
 
-Both team members participate in all major design decisions. Effort is split **50/50**.
+Both team members participate in all major design decisions. Responsibility effort is split **50/50**.
 
-- **SaiAmirthesh (Lead AI Systems & Search Architect):** Core AI algorithm design, graph search implementations (A*, BFS, DFS, UCS), multi-agent dynamic task allocation (Hungarian and greedy scoring), computer vision detection pipeline, target spatial registration, and statistical experiment design.
-- **Adarsh (Swarm Systems, Benchmarking & Infrastructure Lead):** Simulation environment generation, LiDAR sensor ray-casting mechanics, multi-agent observation tracking, headless parallel experiment execution framework, rendering and visualization tools, ROS 2 / Gazebo bridge, and automated testing suite.
+- **SaiAmirthesh — Lead AI Systems & Search Architect:** Core AI algorithm design, graph search implementations (A*, BFS, DFS, UCS), multi-agent dynamic task allocation (Hungarian and greedy scoring), computer vision detection pipeline, target spatial registration, and statistical experiment design.
+- **Adarsh — Swarm Systems, Benchmarking & Infrastructure Lead:** Simulation environment generation, LiDAR sensor ray-casting mechanics, multi-agent observation tracking, headless parallel experiment execution framework, rendering and visualization tools, ROS 2 / Gazebo bridge, and automated testing suite.
 
 ---
 
-## 2. Work Breakdown Structure (WBS) & Task Ownership Matrix
+## 2. Work Breakdown Structure (WBS) & Task Allocation Matrix
 
 | WBS | Phase / Task Description | Primary Owner | Secondary Owner | Deliverables / Artifacts | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -54,8 +54,8 @@ Both team members participate in all major design decisions. Effort is split **5
 | 4.6 | Experiment E3 (Team Size Scaling: N=1, 2, 3 at matched flight time) | Adarsh | SaiAmirthesh | `scripts/run_e3.py`, `docs/results_e3.md` | Completed |
 | 4.7 | Experiment E4 (Cost-Utility Weight $\lambda$ Sensitivity Sweep) | SaiAmirthesh | Adarsh | `scripts/run_e4.py`, `docs/results_e4.md` | Completed |
 | 4.8 | Phase 4 Multi-Agent Benchmark Write-up | SaiAmirthesh | Adarsh | `docs/EXECUTIVE_FINDINGS_E1_E4.md` | Completed |
-| **5.0** | **Perception, Aerial Target Detection & Spatial Registration** | | | | **Next Stage** |
-| 5.1 | Aerial Person Detection Dataset Ingestion & Preprocessing | Adarsh | SaiAmirthesh | `src/perception/data_loader.py` | Pending |
+| **5.0** | **Perception, Aerial Target Detection & Spatial Registration** | | | | **In Progress** |
+| 5.1 | Aerial Person Detection Dataset Ingestion & Preprocessing | Adarsh | SaiAmirthesh | `src/perception/data_loader.py` | Completed |
 | 5.2 | Object Detector Fine-Tuning (YOLOv8 / MobileNet-SSD) | SaiAmirthesh | Adarsh | `src/perception/train.py` | Pending |
 | 5.3 | Detector Evaluation (mAP@50, mAP@50-95, Small-Object Subset) | SaiAmirthesh | Adarsh | `src/perception/eval.py` | Pending |
 | 5.4 | Target Placement & Sensor Camera Footprint Simulation | Adarsh | SaiAmirthesh | `src/world/sensor.py`, `agent.py` | Pending |
@@ -68,7 +68,7 @@ Both team members participate in all major design decisions. Effort is split **5
 | 6.3 | Multi-Agent Occupancy Map Aggregator & ROS 2 Services | SaiAmirthesh | Adarsh | `ros2_ws/src/uav_planner` | Optional |
 | 6.4 | Gazebo Exploration Video Recording & Demonstration | Adarsh | SaiAmirthesh | `results/videos/gazebo_demo.mp4` | Optional |
 | **7.0** | **Reproducibility, Verification & Master Documentation** | | | | **Final Stage** |
-| 7.1 | Automated Test Suite & Regression Checks | Adarsh | SaiAmirthesh | `scripts/test.sh`, `tests/` | In Progress |
+| 7.1 | Automated Test Suite & Regression Checks | Adarsh | SaiAmirthesh | `scripts/test.sh`, `tests/` | Completed |
 | 7.2 | Master Experiment Results Consolidation | SaiAmirthesh | Adarsh | `docs/RESULTS.md` | Pending |
 | 7.3 | Final AI Technical README | SaiAmirthesh | Adarsh | `docs/README.md` | Completed |
 | 7.4 | Final Codebase Verification & Citations Updating | Adarsh | SaiAmirthesh | `CITATIONS.md`, `README.md` | Pending |
