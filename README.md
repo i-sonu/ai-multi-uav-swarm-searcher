@@ -37,7 +37,7 @@ python -m scripts.demo_phase1 --map office            # live window
 python -m scripts.demo_phase1 --save results/raw/demo.gif --no-show  # headless
 ```
 
-**Phase 2** — one drone *autonomously* explores (frontiers → A* → move → repeat):
+**Phase 2** – one drone autonomously explores (frontiers + A* + move + repeat):
 
 ```bash
 python -m scripts.demo_phase2 --map office           # A* by default
@@ -45,10 +45,24 @@ python -m scripts.demo_phase2 --map maze --size 120  # smaller maze finishes soo
 python -m scripts.demo_phase2 --planner bfs --no-show # swap planner, headless
 ```
 
-> A 240×240 **maze** has ~28k reachable cells and width-1 corridors reveal little
+> A 240x240 **maze** has ~28k reachable cells and width-1 corridors reveal little
 > per step, so full coverage needs a large step budget (`--max-steps`, ~90k).
 > Office/open_field maps at 240 finish in ~1.5–2k steps. Use a smaller `--size`
 > for a quick live maze demo.
+
+**Phase 4** – two drones autonomously explore with Hungarian/Greedy coordination:
+
+```bash
+python -m scripts.demo_phase4 --map office --n-agents 2 --method hungarian
+```
+
+**Phase 5** – two drones explore, detect, and register targets in real time:
+
+```bash
+python -m scripts.demo_phase5 --map office --n-agents 2 --n-targets 10 --method hungarian
+```
+
+> **Note:** Running Phase 5 requires pre-trained YOLOv8 weights to be placed at `data/weights/best.pt`. See [`train.md`](train.md) for step-by-step instructions to train the model on Google Colab or fetch the weights from GitHub Releases.
 
 ## Test
 
