@@ -43,7 +43,7 @@ class Renderer:
         self._im = None
 
     # --------------------------------------------------------------------- #
-    def draw(self, grid: np.ndarray, agents: Sequence = (), title: str | None = None) -> None:
+    def draw(self, grid: np.ndarray, agents: Sequence = (), title: str | None = None, true_targets: list = (), registered_targets: list = ()) -> None:
         """Draw one frame: the grid, each agent, and its remaining path.
 
         ``agents`` is any sequence of objects exposing ``.x``, ``.y``, ``.id``
@@ -62,6 +62,14 @@ class Renderer:
         # Clear previous agent/path overlays (keep the base image).
         for artist in list(self.ax.lines) + list(self.ax.collections):
             artist.remove()
+
+        # Draw true targets as green stars
+        for t in true_targets:
+            self.ax.plot(t.x, t.y, "*", color="#3cb44b", markersize=10, markeredgecolor="k", label="True Target")
+
+        # Draw registered detections as hollow red circles
+        for r in registered_targets:
+            self.ax.plot(r["x"], r["y"], "o", color="#e6194B", markersize=8, fillstyle="none", markeredgewidth=1.5, label="Registered Target")
 
         for a in agents:
             color = _AGENT_COLORS[a.id % len(_AGENT_COLORS)]
