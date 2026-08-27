@@ -53,3 +53,46 @@ def test_explores_maze():
     result, pct = _run("maze", 50, seed=0, max_steps=8000)
     assert result.reason == "explored"
     assert pct >= 95.0
+
+
+def _run_multi(kind, size, seed, method, max_steps=4000):
+    from src.exploration.explorer import explore_multi
+    gt = generate_map(kind, size, seed)
+    grid = OccupancyGrid(size, size, resolution=0.25)
+    import numpy as np
+    from src.constants import GT_FREE
+
+    free = np.argwhere(gt == GT_FREE)
+    centre = np.array(gt.shape) / 2.0
+    r, c = free[int(((free - centre) ** 2).sum(1).argmin())]
+    start = (int(r), int(c))
+
+    # Spawn 2 agents
+    agents = [
+        Agent(0, (c * 0.25, r * 0.25, 0.0), resolution=0.25),
+        Agent(1, ((c + 1) * 0.25, r * 0.25, 0.0), resolution=0.25)
+    ]
+
+    result = explore_multi(
+        gt, grid, agents, astar,
+        allocation_method=method,
+        n_beams=180, max_range=8.0, min_cluster_size=3, max_steps=max_steps,
+    )
+    reachable = reachable_free_mask(gt, start)
+    explored = int(((grid.grid == FREE) & reachable).sum())
+    pct = 100.0 * explored / int(reachable.sum())
+    return result, pct, grid
+
+
+def test_explore_multi_greedy():
+    result, pct, grid = _run_multi("office", 50, seed=1, method="greedy")
+    assert result.reason == "explored"
+    assert pct >= 90.0
+    assert 0.0 <= grid.redundant_coverage_ratio() <= 1.0
+
+
+def test_explore_multi_hungarian():
+    result, pct, grid = _run_multi("office", 50, seed=1, method="hungarian")
+    assert result.reason == "explored"
+    assert pct >= 90.0
+    assert 0.0 <= grid.redundant_coverage_ratio() <= 1.0
