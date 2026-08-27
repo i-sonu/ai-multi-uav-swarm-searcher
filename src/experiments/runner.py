@@ -44,6 +44,7 @@ class RunConfig:
     max_range: float = 12.0
     min_cluster_size: int = 3
     max_steps: int = 20000
+    n_targets: int = 0
 
 
 @dataclass
@@ -67,6 +68,9 @@ class RunRecord:
     plan_mean_ms: float
     plan_p95_ms: float
     wall_time_s: float
+    target_recall: float = 0.0
+    loc_error_mean: float = 0.0
+    time_to_first_detect: object = None
 
 
 def run_single(cfg: RunConfig) -> tuple[RunRecord, list[float]]:
@@ -88,6 +92,23 @@ def run_single(cfg: RunConfig) -> tuple[RunRecord, list[float]]:
         agents.append(Agent(i, (ac * cfg.resolution, ar * cfg.resolution, 0.0), resolution=cfg.resolution))
 
     planner = get_planner(cfg.planner)
+    reachable = reachable_free_mask(gt, (start_r, start_c))
+
+    # Generate targets if requested
+    targets = []
+    camera_sensor = None
+    target_register = None
+    if getattr(cfg, 'n_targets', 0) > 0:
+        from src.world.targets import generate_targets
+        from src.perception.registration import CameraSensor, TargetRegister
+        targets = generate_targets(gt, n_targets=cfg.n_targets, seed=cfg.seed, resolution=cfg.resolution, reachable_mask=reachable)
+        camera_sensor = CameraSensor(
+            range_m=6.0,
+            recall_person=0.26,
+            recall_vehicle=0.40,
+            loc_noise_std_m=0.3
+        )
+        target_register = TargetRegister(dedup_threshold_m=2.0)
 
     result = explore_multi(
         gt, grid, agents, planner,
@@ -96,10 +117,12 @@ def run_single(cfg: RunConfig) -> tuple[RunRecord, list[float]]:
         n_beams=cfg.n_beams, max_range=cfg.max_range,
         min_cluster_size=cfg.min_cluster_size, max_steps=cfg.max_steps,
         collect_metrics=True,
+        targets=targets,
+        camera_sensor=camera_sensor,
+        target_register=target_register
     )
     wall = time.perf_counter() - t0
 
-    reachable = reachable_free_mask(gt, (start_r, start_c))
     final_cov = coverage_percentage(grid.grid, reachable)
     node_stats = nodes_expanded_stats(result.plan_nodes)
     wc_stats = planning_wallclock_stats(result.plan_wallclock)
@@ -124,6 +147,9 @@ def run_single(cfg: RunConfig) -> tuple[RunRecord, list[float]]:
         plan_mean_ms=round(wc_stats["mean_s"] * 1e3, 4),
         plan_p95_ms=round(wc_stats["p95_s"] * 1e3, 4),
         wall_time_s=round(wall, 2),
+        target_recall=round(getattr(result, 'target_recall', 0.0), 3),
+        loc_error_mean=round(getattr(result, 'loc_error_mean', 0.0), 3),
+        time_to_first_detect=getattr(result, 'time_to_first_detect', None),
     )
     return record, result.coverage_series
 
