@@ -38,6 +38,10 @@ class ExplorationResult:
     coverage_series: list = field(default_factory=list)      # coverage % per step
     plan_nodes: list = field(default_factory=list)           # nodes expanded per planner call
     plan_wallclock: list = field(default_factory=list)       # seconds per planner call
+    # --- target registration metrics (Phase 5) ---
+    time_to_first_detect: int | None = None
+    target_recall: float = 0.0
+    loc_error_mean: float = 0.0
 
 
 def reachable_free_mask(ground_truth: np.ndarray, start: tuple[int, int]) -> np.ndarray:
@@ -123,6 +127,10 @@ def explore_multi(
     treat_unknown_as_free: bool = True,
     on_step: Callable[[int], None] | None = None,
     collect_metrics: bool = False,
+    # --- Target perception params (Phase 5) ---
+    targets: list = None,
+    camera_sensor: object = None,
+    target_register: object = None,
 ) -> ExplorationResult:
     """Run multi-agent autonomous exploration for N agents. Mutates ``grid`` and ``agents``."""
     result = ExplorationResult(False, 0, 0, 0, "step_limit")
@@ -146,12 +154,35 @@ def explore_multi(
         known = int(((grid.grid == FREE) & reachable).sum())
         result.coverage_series.append(100.0 * known / reachable_count if reachable_count else 0.0)
 
+    if targets is None:
+        targets = []
+
+    # Initialize perception sensor and register if needed
+    if targets and (camera_sensor is None or target_register is None):
+        from src.perception.registration import CameraSensor, TargetRegister
+        if camera_sensor is None:
+            camera_sensor = CameraSensor()
+        if target_register is None:
+            target_register = TargetRegister()
+
+    def _sense_targets_all(current_step: int) -> None:
+        if not targets or camera_sensor is None or target_register is None:
+            return
+        for a in agents:
+            # Deterministic seed based on step index and agent ID
+            detections = camera_sensor.sense_targets(a.pose, a.id, targets, seed=current_step * 100 + a.id)
+            for det in detections:
+                target_register.register_detection(det, current_step)
+
     _sense_all()
+    _sense_targets_all(0)
 
     step = 0
     reached = 0
     failures: dict[tuple[int, int], int] = defaultdict(int)
     blacklist: set[tuple[int, int]] = set()
+
+    import math
 
     def _finish(reason: str) -> ExplorationResult:
         result.steps = step
@@ -159,6 +190,32 @@ def explore_multi(
         result.blacklisted = len(blacklist)
         result.reason = reason
         result.done = reason == "explored"
+
+        # Calculate target registration metrics (Phase 5)
+        if targets and target_register is not None:
+            registered = target_register.get_registered_targets()
+            first_detect = None
+            for r in registered:
+                if first_detect is None or r["last_updated"] < first_detect:
+                    first_detect = r["last_updated"]
+            result.time_to_first_detect = first_detect
+
+            localized_count = 0
+            error_sum = 0.0
+            for t in targets:
+                best_dist = float('inf')
+                for r in registered:
+                    if r["class_id"] == t.class_id:
+                        dist = math.hypot(r["x"] - t.x, r["y"] - t.y)
+                        if dist < best_dist:
+                            best_dist = dist
+                if best_dist <= 2.0:  # 2.0m tolerance
+                    localized_count += 1
+                    error_sum += best_dist
+
+            result.target_recall = 100.0 * localized_count / len(targets) if targets else 0.0
+            result.loc_error_mean = error_sum / localized_count if localized_count > 0 else 0.0
+
         return result
 
     while step < max_steps:
@@ -205,6 +262,7 @@ def explore_multi(
             # If no agent could plan to their current goal, continue to next step iteration
             step += 1
             _sense_all()
+            _sense_targets_all(step)
             _log_step()
             continue
 
@@ -223,6 +281,7 @@ def explore_multi(
                         if not a.has_path():
                             reached += 1
             _sense_all()
+            _sense_targets_all(step)
             step += 1
             steps_in_round += 1
             _log_step()
