@@ -85,6 +85,48 @@ def neighbors(grid: np.ndarray, r: int, c: int, treat_unknown_as_free: bool):
         yield nr, nc, cost
 
 
+def dijkstra_costs(grid, start, targets, treat_unknown_as_free=True):
+    """Least-cost distance from ``start`` to each cell in ``targets``.
+
+    A single-source Dijkstra (uniform-cost search) that returns the optimal
+    8-connected path cost to every target in one sweep — used to build the
+    multi-agent cost matrix cheaply. Computing K individual A* searches would
+    repeat almost all the work; one Dijkstra per agent gives all K costs at once
+    and early-exits once every target has been settled.
+
+    Returns a dict ``{target: cost}``; unreachable targets get ``inf``.
+    """
+    import heapq
+
+    target_set = set(targets)
+    remaining = set(target_set)
+    out = {t: math.inf for t in target_set}
+
+    g = {start: 0.0}
+    tie = 0
+    heap = [(0.0, tie, start)]
+    closed = set()
+    while heap and remaining:
+        d, _t, cur = heapq.heappop(heap)
+        if cur in closed:
+            continue
+        closed.add(cur)
+        if cur in remaining:
+            out[cur] = d
+            remaining.discard(cur)
+        cr, cc = cur
+        for nr, nc, step in neighbors(grid, cr, cc, treat_unknown_as_free):
+            nxt = (nr, nc)
+            if nxt in closed:
+                continue
+            nd = d + step
+            if nd < g.get(nxt, math.inf):
+                g[nxt] = nd
+                tie += 1
+                heapq.heappush(heap, (nd, tie, nxt))
+    return out
+
+
 def reconstruct_path(came_from: dict, start, goal) -> list[tuple[int, int]]:
     """Walk parent pointers back from ``goal`` to ``start``; return start->goal."""
     path = [goal]

@@ -20,7 +20,19 @@ still cite the sources our implementations follow.
   from scratch. _Introduced: 2026-08-04._
 - **Frontier-based exploration** — Yamauchi, B. (1997), "A frontier-based
   approach for autonomous exploration," *IEEE CIRA*. Basis for the
-  frontier-detection strategy (`src/frontier/`). _To be used from Phase 2._
+  frontier-detection strategy (`src/frontier/`). _Introduced: Phase 2._
+- **Hungarian algorithm (optimal assignment)** — Kuhn, H. W. (1955), "The
+  Hungarian method for the assignment problem," *Naval Research Logistics
+  Quarterly*. Used for optimal one-to-one agent→frontier allocation
+  (`src/planning/allocation.py`), via `scipy.optimize.linear_sum_assignment`
+  (we call the library solver; the cost/utility formulation is ours).
+  _Introduced: Phase 4._
+- **Multi-robot coordinated exploration** — Burgard, W., Moors, M., Stachniss,
+  C. & Schneider, F. (2005), "Coordinated multi-robot exploration," *IEEE Trans.
+  Robotics*. Conceptual basis for cost-vs-information-gain frontier assignment
+  and the redundant-coverage argument (`src/planning/allocation.py`, Phase 4
+  experiments). Implemented from the described method; no code copied.
+  _Introduced: Phase 4._
 
 ## Software libraries
 
