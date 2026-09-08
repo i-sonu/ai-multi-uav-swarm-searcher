@@ -24,7 +24,13 @@ import numpy as np
 
 from src.agents.agent import Agent
 from src.config import REPO_ROOT
-from src.exploration.explorer import center_free_cell, explore, reachable_free_mask
+from src.exploration.explorer import (
+    center_free_cell,
+    explore,
+    explore_team,
+    reachable_free_mask,
+    team_start_cells,
+)
 from src.mapping.occupancy_grid import OccupancyGrid
 from src.metrics.metrics import (
     coverage_percentage,
@@ -48,6 +54,14 @@ class RunConfig:
     max_range: float = 12.0
     min_cluster_size: int = 3
     max_steps: int = 20000
+    # --- multi-agent (Phase 4) ---
+    # method "single" runs the Phase 2 single-agent loop (explore); any allocation
+    # method ("none"/"greedy"/"hungarian") runs the team loop (explore_team), so a
+    # 1-agent team run is directly comparable to a 2- or 3-agent one.
+    method: str = "single"
+    lambda_cost: float = 1.0
+    replan_every: int = 10
+    start_layout: str = "base"
 
 
 @dataclass
@@ -56,6 +70,8 @@ class RunRecord:
     map_kind: str
     seed: int
     n_agents: int
+    method: str
+    lambda_cost: float
     size: int
     reason: str
     steps: int
@@ -72,26 +88,49 @@ class RunRecord:
 
 
 def run_single(cfg: RunConfig) -> tuple[RunRecord, list[float]]:
-    """Execute one exploration run; return its summary record and coverage series."""
-    if cfg.n_agents != 1:
-        raise NotImplementedError("multi-agent runs arrive in Phase 4")
+    """Execute one exploration run (single- or multi-agent); return its summary
+    record and coverage series.
 
+    ``cfg.method == "single"`` uses the Phase 2 single-agent loop unchanged (so
+    E1 numbers are byte-for-byte reproducible). Any allocation method routes
+    through the Phase 4 team loop with ``cfg.n_agents`` agents.
+    """
     t0 = time.perf_counter()
     gt = generate_map(cfg.map_kind, cfg.size, cfg.seed)
     grid = OccupancyGrid(cfg.size, cfg.size, resolution=cfg.resolution)
-    start = center_free_cell(gt)
-    agent = Agent(0, (start[1] * cfg.resolution, start[0] * cfg.resolution, 0.0), resolution=cfg.resolution)
     planner = get_planner(cfg.planner)
 
-    result = explore(
-        gt, grid, agent, planner,
-        n_beams=cfg.n_beams, max_range=cfg.max_range,
-        min_cluster_size=cfg.min_cluster_size, max_steps=cfg.max_steps,
-        collect_metrics=True,
-    )
+    if cfg.method == "single":
+        if cfg.n_agents != 1:
+            raise ValueError("method='single' is single-agent; use an allocation method for n_agents>1")
+        starts = [center_free_cell(gt)]
+        agents = [Agent(0, (starts[0][1] * cfg.resolution, starts[0][0] * cfg.resolution, 0.0),
+                        resolution=cfg.resolution)]
+        result = explore(
+            gt, grid, agents[0], planner,
+            n_beams=cfg.n_beams, max_range=cfg.max_range,
+            min_cluster_size=cfg.min_cluster_size, max_steps=cfg.max_steps,
+            collect_metrics=True,
+        )
+    else:
+        starts = team_start_cells(gt, cfg.n_agents, layout=cfg.start_layout)
+        agents = [
+            Agent(i, (s[1] * cfg.resolution, s[0] * cfg.resolution, 0.0), resolution=cfg.resolution)
+            for i, s in enumerate(starts)
+        ]
+        result = explore_team(
+            gt, grid, agents, planner,
+            method=cfg.method, lambda_cost=cfg.lambda_cost,
+            n_beams=cfg.n_beams, max_range=cfg.max_range,
+            min_cluster_size=cfg.min_cluster_size, max_steps=cfg.max_steps,
+            replan_every=cfg.replan_every, collect_metrics=True,
+        )
     wall = time.perf_counter() - t0
 
-    reachable = reachable_free_mask(gt, start)
+    # Coverage denominator: union of every agent's reachable-free region.
+    reachable = np.zeros(gt.shape, dtype=bool)
+    for s in starts:
+        reachable |= reachable_free_mask(gt, s)
     final_cov = coverage_percentage(grid.grid, reachable)
     node_stats = nodes_expanded_stats(result.plan_nodes)
     wc_stats = planning_wallclock_stats(result.plan_wallclock)
@@ -101,12 +140,14 @@ def run_single(cfg: RunConfig) -> tuple[RunRecord, list[float]]:
         map_kind=cfg.map_kind,
         seed=cfg.seed,
         n_agents=cfg.n_agents,
+        method=cfg.method,
+        lambda_cost=cfg.lambda_cost,
         size=cfg.size,
         reason=result.reason,
         steps=result.steps,
         final_coverage=round(final_cov, 3),
         time_to_90=time_to_coverage(result.coverage_series, 90.0),
-        path_length_m=round(agent.distance_travelled, 3),
+        path_length_m=round(sum(a.distance_travelled for a in agents), 3),
         redundant_ratio=round(grid.redundant_coverage_ratio(), 4),
         nodes_total=node_stats["total"],
         nodes_mean=round(node_stats["mean"], 2),
@@ -174,13 +215,15 @@ def run_batch(
         steps_csv = Path(steps_csv)
         with open(steps_csv, "w", newline="") as f:
             w = csv.writer(f)
-            w.writerow(["planner", "map_kind", "seed", "step", "coverage"])
+            w.writerow(["planner", "map_kind", "seed", "method", "n_agents", "lambda_cost", "step", "coverage"])
             for record, series in results:
+                meta = [record.planner, record.map_kind, record.seed,
+                        record.method, record.n_agents, record.lambda_cost]
                 for i in range(0, len(series), step_stride):
-                    w.writerow([record.planner, record.map_kind, record.seed, i + 1, round(series[i], 3)])
+                    w.writerow(meta + [i + 1, round(series[i], 3)])
                 # Always include the final point so curves end at the true value.
                 if series and (len(series) - 1) % step_stride != 0:
-                    w.writerow([record.planner, record.map_kind, record.seed, len(series), round(series[-1], 3)])
+                    w.writerow(meta + [len(series), round(series[-1], 3)])
 
     return [r for r, _ in results]
 
