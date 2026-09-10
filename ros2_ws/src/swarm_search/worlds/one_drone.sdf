@@ -1,0 +1,99 @@
+<?xml version="1.0" ?>
+<!--
+  Milestone 6a world: one kinematic "drone" that flies to commanded waypoints.
+
+  The drone is a simple box at fixed altitude driven by the VelocityControl
+  system (subscribes to a cmd_vel Twist and sets the model's velocity directly —
+  no flight dynamics, matching the project's deliberate no-dynamics scope). Its
+  ground-truth pose is published by the OdometryPublisher system. A couple of
+  static walls give the later LiDAR something to hit.
+
+  For gz-sim8 (Gazebo Harmonic), shipped with ROS 2 Jazzy.
+-->
+<sdf version="1.8">
+  <world name="one_drone">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Ground plane -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+          <material><ambient>0.8 0.8 0.8 1</ambient><diffuse>0.8 0.8 0.8 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- A couple of static walls (obstacles for the later LiDAR) -->
+    <model name="wall_a">
+      <static>true</static>
+      <pose>4 0 0.5 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.2 6 1</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.2 6 1</size></box></geometry>
+          <material><ambient>0.3 0.3 0.35 1</ambient><diffuse>0.3 0.3 0.35 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="wall_b">
+      <static>true</static>
+      <pose>0 4 0.5 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>6 0.2 1</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>6 0.2 1</size></box></geometry>
+          <material><ambient>0.3 0.3 0.35 1</ambient><diffuse>0.3 0.3 0.35 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- The drone -->
+    <model name="drone1">
+      <pose>0 0 0.5 0 0 0</pose>
+      <link name="base_link">
+        <inertial>
+          <mass>1.0</mass>
+          <inertia><ixx>0.02</ixx><iyy>0.02</iyy><izz>0.02</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry><box><size>0.4 0.4 0.15</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.4 0.4 0.15</size></box></geometry>
+          <material><ambient>0.85 0.15 0.15 1</ambient><diffuse>0.85 0.15 0.15 1</diffuse></material>
+        </visual>
+      </link>
+
+      <!-- Kinematic velocity control: sets the model velocity from cmd_vel.
+           Topic: /model/drone1/cmd_vel (gz.msgs.Twist). -->
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl">
+        <topic>/model/drone1/cmd_vel</topic>
+      </plugin>
+
+      <!-- Ground-truth pose as odometry. Topic: /model/drone1/odometry. -->
+      <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+        <odom_frame>odom</odom_frame>
+        <robot_base_frame>drone1</robot_base_frame>
+        <dimensions>3</dimensions>
+        <odom_topic>/model/drone1/odometry</odom_topic>
+        <odom_publish_frequency>30</odom_publish_frequency>
+      </plugin>
+    </model>
+  </world>
+</sdf>
