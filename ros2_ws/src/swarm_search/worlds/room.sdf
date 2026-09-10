@@ -1,11 +1,13 @@
 <?xml version="1.0" ?>
 <!--
-  A bounded room for autonomous exploration (milestones 6c/6d).
+  A bounded multi-room building for autonomous exploration (milestones 6c/6d).
 
-  An ~16 x 16 m enclosed room (outer walls at +/-8 m) with a few internal walls
-  forming rooms/corridors, so frontier-based exploration has a finite space to
-  cover and actually terminates. One (or, in 6d, two) LiDAR drones start near the
-  centre. Same kinematic drone + gpu_lidar as the 6a/6b world.
+  ~36 x 36 m enclosed (outer walls at +/-18 m, ~5x the area of the original 16 m
+  room) with several internal partition walls forming connected rooms and
+  corridors, each with a doorway gap so frontier exploration can reach the whole
+  space and terminate. Fits the mapping grid (240 cells @ 0.25 m = 60 m span,
+  origin (-30,-30)). All walls 0.5 m thick (2 cells) so they map to solid,
+  gap-free occupied lines. Same kinematic drone + gpu_lidar as before.
 -->
 <sdf version="1.8">
   <world name="room">
@@ -41,39 +43,57 @@
       </link>
     </model>
 
-    <!-- Walls: name, pose (x y z r p yaw), size (sx sy sz). Reused snippet.
-         Thickness 0.5 m (= 2 grid cells) so walls map to SOLID, gap-free
-         occupied lines — a thinner wall aliases into a dotted line the optimistic
-         planner would route the drone straight through. -->
-    <!-- Outer boundary (16 x 16 m room). -->
-    <model name="wall_n"><static>true</static><pose>0 8 0.5 0 0 0</pose>
-      <link name="l"><collision name="c"><geometry><box><size>16.5 0.5 1</size></box></geometry></collision>
-      <visual name="v"><geometry><box><size>16.5 0.5 1</size></box></geometry>
+    <!-- Walls: pose (x y z r p yaw), size (sx sy sz). All 0.5 m thick. -->
+    <!-- Outer boundary (36 x 36 m). -->
+    <model name="wall_n"><static>true</static><pose>0 18 0.5 0 0 0</pose>
+      <link name="l"><collision name="c"><geometry><box><size>36.5 0.5 1</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>36.5 0.5 1</size></box></geometry>
       <material><ambient>0.35 0.35 0.4 1</ambient><diffuse>0.35 0.35 0.4 1</diffuse></material></visual></link></model>
-    <model name="wall_s"><static>true</static><pose>0 -8 0.5 0 0 0</pose>
-      <link name="l"><collision name="c"><geometry><box><size>16.5 0.5 1</size></box></geometry></collision>
-      <visual name="v"><geometry><box><size>16.5 0.5 1</size></box></geometry>
+    <model name="wall_s"><static>true</static><pose>0 -18 0.5 0 0 0</pose>
+      <link name="l"><collision name="c"><geometry><box><size>36.5 0.5 1</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>36.5 0.5 1</size></box></geometry>
       <material><ambient>0.35 0.35 0.4 1</ambient><diffuse>0.35 0.35 0.4 1</diffuse></material></visual></link></model>
-    <model name="wall_e"><static>true</static><pose>8 0 0.5 0 0 0</pose>
-      <link name="l"><collision name="c"><geometry><box><size>0.5 16.5 1</size></box></geometry></collision>
-      <visual name="v"><geometry><box><size>0.5 16.5 1</size></box></geometry>
+    <model name="wall_e"><static>true</static><pose>18 0 0.5 0 0 0</pose>
+      <link name="l"><collision name="c"><geometry><box><size>0.5 36.5 1</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>0.5 36.5 1</size></box></geometry>
       <material><ambient>0.35 0.35 0.4 1</ambient><diffuse>0.35 0.35 0.4 1</diffuse></material></visual></link></model>
-    <model name="wall_w"><static>true</static><pose>-8 0 0.5 0 0 0</pose>
-      <link name="l"><collision name="c"><geometry><box><size>0.5 16.5 1</size></box></geometry></collision>
-      <visual name="v"><geometry><box><size>0.5 16.5 1</size></box></geometry>
+    <model name="wall_w"><static>true</static><pose>-18 0 0.5 0 0 0</pose>
+      <link name="l"><collision name="c"><geometry><box><size>0.5 36.5 1</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>0.5 36.5 1</size></box></geometry>
       <material><ambient>0.35 0.35 0.4 1</ambient><diffuse>0.35 0.35 0.4 1</diffuse></material></visual></link></model>
 
-    <!-- Internal walls: a partial divider (with a doorway gap) and a stub. -->
-    <model name="wall_div"><static>true</static><pose>0 2 0.5 0 0 0</pose>
-      <link name="l"><collision name="c"><geometry><box><size>10 0.5 1</size></box></geometry></collision>
-      <visual name="v"><geometry><box><size>10 0.5 1</size></box></geometry>
+    <!-- Internal partitions (each leaves a doorway gap so all rooms connect). -->
+    <!-- Vertical wall at x=-6, y in [-18, 4] (gap at top). -->
+    <model name="wall_v1"><static>true</static><pose>-6 -7 0.5 0 0 0</pose>
+      <link name="l"><collision name="c"><geometry><box><size>0.5 22 1</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>0.5 22 1</size></box></geometry>
       <material><ambient>0.4 0.35 0.35 1</ambient><diffuse>0.4 0.35 0.35 1</diffuse></material></visual></link></model>
-    <model name="wall_stub"><static>true</static><pose>-3 -4 0.5 0 0 0</pose>
-      <link name="l"><collision name="c"><geometry><box><size>0.5 6 1</size></box></geometry></collision>
-      <visual name="v"><geometry><box><size>0.5 6 1</size></box></geometry>
+    <!-- Vertical wall at x=6, y in [-4, 18] (gap at bottom). -->
+    <model name="wall_v2"><static>true</static><pose>6 7 0.5 0 0 0</pose>
+      <link name="l"><collision name="c"><geometry><box><size>0.5 22 1</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>0.5 22 1</size></box></geometry>
+      <material><ambient>0.4 0.35 0.35 1</ambient><diffuse>0.4 0.35 0.35 1</diffuse></material></visual></link></model>
+    <!-- Horizontal wall at y=6, x in [-18, 6] (gap on the right). -->
+    <model name="wall_h1"><static>true</static><pose>-6 6 0.5 0 0 0</pose>
+      <link name="l"><collision name="c"><geometry><box><size>24 0.5 1</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>24 0.5 1</size></box></geometry>
+      <material><ambient>0.4 0.35 0.35 1</ambient><diffuse>0.4 0.35 0.35 1</diffuse></material></visual></link></model>
+    <!-- Horizontal wall at y=-6, x in [-6, 18] (gap on the left). -->
+    <model name="wall_h2"><static>true</static><pose>6 -6 0.5 0 0 0</pose>
+      <link name="l"><collision name="c"><geometry><box><size>24 0.5 1</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>24 0.5 1</size></box></geometry>
+      <material><ambient>0.4 0.35 0.35 1</ambient><diffuse>0.4 0.35 0.35 1</diffuse></material></visual></link></model>
+    <!-- Two short interior obstacles to break up the big rooms. -->
+    <model name="wall_o1"><static>true</static><pose>-12 -12 0.5 0 0 0</pose>
+      <link name="l"><collision name="c"><geometry><box><size>8 0.5 1</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>8 0.5 1</size></box></geometry>
+      <material><ambient>0.4 0.35 0.35 1</ambient><diffuse>0.4 0.35 0.35 1</diffuse></material></visual></link></model>
+    <model name="wall_o2"><static>true</static><pose>12 12 0.5 0 0 0</pose>
+      <link name="l"><collision name="c"><geometry><box><size>0.5 8 1</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>0.5 8 1</size></box></geometry>
       <material><ambient>0.4 0.35 0.35 1</ambient><diffuse>0.4 0.35 0.35 1</diffuse></material></visual></link></model>
 
-    <!-- Drone (kinematic, gpu_lidar). Starts near the room centre. -->
+    <!-- Drone (kinematic, gpu_lidar). Starts in the lower-central room. -->
     <model name="drone1">
       <pose>0 -3 0.5 0 0 0</pose>
       <link name="base_link">
