@@ -58,46 +58,55 @@ def _yaw_from_quat(q) -> float:
 class MappingNode(Node):
     def __init__(self) -> None:
         super().__init__("mapping_node")
-        self.declare_parameter("scan_topic", "/model/drone1/scan")
-        self.declare_parameter("odom_topic", "/model/drone1/odometry")
+        # One shared grid fed by every drone. `drones` is a comma-separated list
+        # of model names; each contributes scans tagged with its own agent id, so
+        # the per-cell observation counts support the redundant-coverage metric.
+        self.declare_parameter("drones", "drone1")
         self.declare_parameter("map_topic", "/map")
         self.declare_parameter("resolution", 0.25)
         self.declare_parameter("size", 240)          # cells per side
         self.declare_parameter("origin_x", -30.0)    # world coord of cell (0,0)
         self.declare_parameter("origin_y", -30.0)
-        self.declare_parameter("agent_id", 0)
         self.declare_parameter("publish_period", 0.5)
 
         self.res = float(self.get_parameter("resolution").value)
         self.size = int(self.get_parameter("size").value)
         self.origin = (float(self.get_parameter("origin_x").value),
                        float(self.get_parameter("origin_y").value))
-        self.agent_id = int(self.get_parameter("agent_id").value)
+        self.drones = [d.strip() for d in self.get_parameter("drones").value.split(",") if d.strip()]
 
         self.grid = OccupancyGrid(self.size, self.size, resolution=self.res)
-        self.pose: tuple[float, float, float] | None = None
+        self.pose: dict[str, tuple[float, float, float]] = {}
 
-        self.create_subscription(Odometry, self.get_parameter("odom_topic").value, self._on_odom, 10)
-        self.create_subscription(LaserScan, self.get_parameter("scan_topic").value, self._on_scan, 10)
+        # Per-drone scan+odom subscriptions, each tagged with its own agent id.
+        for i, name in enumerate(self.drones):
+            self.create_subscription(Odometry, f"/model/{name}/odometry", self._odom_cb(name), 10)
+            self.create_subscription(LaserScan, f"/model/{name}/scan", self._scan_cb(name, i), 10)
+
         # Latched map so RViz gets the current grid the moment it subscribes.
         latched = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
         self.map_pub = self.create_publisher(OccupancyGridMsg, self.get_parameter("map_topic").value, latched)
         self.create_timer(float(self.get_parameter("publish_period").value), self._publish_map)
-        self.get_logger().info("mapping_node up: folding LiDAR scans into the shared grid")
+        self.get_logger().info(f"mapping_node up: fusing {len(self.drones)} drone(s) {self.drones} into /map")
 
-    def _on_odom(self, msg: Odometry) -> None:
-        p = msg.pose.pose
-        self.pose = (p.position.x, p.position.y, _yaw_from_quat(p.orientation))
+    def _odom_cb(self, name: str):
+        def cb(msg: Odometry) -> None:
+            p = msg.pose.pose
+            self.pose[name] = (p.position.x, p.position.y, _yaw_from_quat(p.orientation))
+        return cb
 
-    def _on_scan(self, msg: LaserScan) -> None:
-        if self.pose is None:
-            return  # wait for the first pose
-        integrate_scan(
-            self.grid, self.pose, list(msg.ranges),
-            angle_min=msg.angle_min, angle_increment=msg.angle_increment,
-            range_max=msg.range_max, origin=self.origin, agent_id=self.agent_id,
-            occupied_sticky=True,  # don't let grazing beams punch holes in walls
-        )
+    def _scan_cb(self, name: str, agent_id: int):
+        def cb(msg: LaserScan) -> None:
+            pose = self.pose.get(name)
+            if pose is None:
+                return  # wait for this drone's first pose
+            integrate_scan(
+                self.grid, pose, list(msg.ranges),
+                angle_min=msg.angle_min, angle_increment=msg.angle_increment,
+                range_max=msg.range_max, origin=self.origin, agent_id=agent_id,
+                occupied_sticky=True,  # don't let grazing beams punch holes in walls
+            )
+        return cb
 
     def _publish_map(self) -> None:
         msg = OccupancyGridMsg()

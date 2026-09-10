@@ -27,9 +27,23 @@ source install/setup.bash
   ```
   A single drone flies a square patrol of waypoints, driven by
   `waypoint_driver` over `cmd_vel`, using ground-truth odometry.
-- 6b — bridge Gazebo LiDAR into an occupancy-grid node *(next)*
-- 6c — wrap the exploration loop as a node that drives the drone
-- 6d — two namespaced drones (`/drone1`, `/drone2`) + one shared map node
-- 6e — record the demo video
+- **6b — Gazebo LiDAR builds the shared `/map`** *(done)*
+  ```bash
+  ros2 launch swarm_search mapping.launch.py       # + rviz2, Map on /map
+  ```
+- **6c — autonomous single-drone exploration** *(done)*
+  ```bash
+  ros2 launch swarm_search explore.launch.py
+  ```
+  Frontier + A* (from `src/`) drive the drone over `/map` until covered.
+- **6d — two coordinated drones + one shared map** *(done)*
+  ```bash
+  ros2 launch swarm_search two.launch.py               # hungarian (default)
+  ros2 launch swarm_search two.launch.py method:=none  # uncoordinated baseline
+  ```
+  One `mapping_node` fuses both LiDARs into `/map`; one `coordination_node`
+  runs the Phase 4 allocator to hand each drone a distinct frontier so they
+  split the room.
+- 6e — record the demo video *(next)*
 
 Build artifacts (`build/ install/ log/`) are git-ignored.
