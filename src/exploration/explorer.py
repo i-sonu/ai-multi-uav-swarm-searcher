@@ -274,6 +274,8 @@ def explore_team(
     treat_unknown_as_free: bool = True,
     on_step: Callable[[int], None] | None = None,
     collect_metrics: bool = False,
+    detector=None,
+    register=None,
 ) -> ExplorationResult:
     """Coordinated exploration for ``len(agents)`` agents on one shared grid.
 
@@ -284,6 +286,12 @@ def explore_team(
     One simulation step = every agent advances one cell and senses. Allocation
     is recomputed when an agent finishes/loses its goal or every ``replan_every``
     steps (CLAUDE.md Phase 4.5).
+
+    Detection (Phase 5, half B) is optional and fully decoupled: if a ``detector``
+    and shared ``register`` are supplied, each agent runs the detector on its
+    viewpoint every step and fused detections are written to the register. This
+    never influences frontier detection, allocation, or planning — the register
+    is a write-only observer of the same run.
     """
     result = ExplorationResult(False, 0, 0, 0, "step_limit")
     sensor_range_cells = max_range / grid.resolution
@@ -301,6 +309,15 @@ def explore_team(
                 a.sense(ground_truth, n_beams=n_beams, max_range=max_range), agent_id=a.id
             )
 
+    def _detect_all(step: int) -> None:
+        # Perception layer (Phase 5): runs alongside sensing, writes to the shared
+        # register, and has no effect on the exploration decisions below.
+        if detector is None or register is None:
+            return
+        for a in agents:
+            for det in detector.detect(a.pose, a.id, step):
+                register.add(det)
+
     def _log_step() -> None:
         if not collect_metrics:
             return
@@ -316,6 +333,7 @@ def explore_team(
         return result
 
     _sense_all()
+    _detect_all(0)
 
     step = 0
     reached = 0
@@ -399,6 +417,7 @@ def explore_team(
             _sense_all()
             step += 1
             executed += 1
+            _detect_all(step)
             _log_step()
             if on_step is not None:
                 on_step(step)

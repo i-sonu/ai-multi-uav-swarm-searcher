@@ -60,3 +60,21 @@ allocation:
 # --- Coverage / termination ---
 coverage:
   target_pct: 95.0            # exploration success threshold
+
+# --- Target detection & registration (Phase 5, simulator "half B") ---
+# The detector is a SEPARATE perception layer riding on top of exploration; it
+# never feeds back into planning/allocation. A SimulatedDetector stands in until
+# a real trained model is plugged into the same Detector interface.
+perception:
+  n_targets: 8                # M targets placed at random reachable free cells
+  min_target_separation_m: 2.0
+  camera:
+    range_m: 6.0              # max detection distance (forward cone)
+    fov_deg: 90.0             # field-of-view full angle, centred on heading
+  detector:
+    recall: 0.9              # P(detect an in-view target with clear line-of-sight)
+    localisation_noise_m: 0.3 # Gaussian sigma on the reported position
+    false_positive_rate: 0.0  # expected spurious detections per frame (off by default)
+  registration:
+    dedup_radius_m: 1.0      # merge detections/entries within this distance
+    localisation_tolerance_m: 1.0  # register entry is "correct" within this of a true target
