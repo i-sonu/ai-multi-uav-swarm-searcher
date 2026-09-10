@@ -43,3 +43,8 @@ results/raw/
 .coverage
 htmlcov/
 .mypy_cache/
+
+# --- ROS 2 / colcon (Phase 6) build artifacts ---
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
