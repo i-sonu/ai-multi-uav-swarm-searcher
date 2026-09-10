@@ -41,33 +41,36 @@
       </link>
     </model>
 
-    <!-- Walls: name, pose (x y z r p yaw), size (sx sy sz). Reused snippet. -->
+    <!-- Walls: name, pose (x y z r p yaw), size (sx sy sz). Reused snippet.
+         Thickness 0.5 m (= 2 grid cells) so walls map to SOLID, gap-free
+         occupied lines — a thinner wall aliases into a dotted line the optimistic
+         planner would route the drone straight through. -->
     <!-- Outer boundary (16 x 16 m room). -->
     <model name="wall_n"><static>true</static><pose>0 8 0.5 0 0 0</pose>
-      <link name="l"><collision name="c"><geometry><box><size>16.4 0.2 1</size></box></geometry></collision>
-      <visual name="v"><geometry><box><size>16.4 0.2 1</size></box></geometry>
+      <link name="l"><collision name="c"><geometry><box><size>16.5 0.5 1</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>16.5 0.5 1</size></box></geometry>
       <material><ambient>0.35 0.35 0.4 1</ambient><diffuse>0.35 0.35 0.4 1</diffuse></material></visual></link></model>
     <model name="wall_s"><static>true</static><pose>0 -8 0.5 0 0 0</pose>
-      <link name="l"><collision name="c"><geometry><box><size>16.4 0.2 1</size></box></geometry></collision>
-      <visual name="v"><geometry><box><size>16.4 0.2 1</size></box></geometry>
+      <link name="l"><collision name="c"><geometry><box><size>16.5 0.5 1</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>16.5 0.5 1</size></box></geometry>
       <material><ambient>0.35 0.35 0.4 1</ambient><diffuse>0.35 0.35 0.4 1</diffuse></material></visual></link></model>
     <model name="wall_e"><static>true</static><pose>8 0 0.5 0 0 0</pose>
-      <link name="l"><collision name="c"><geometry><box><size>0.2 16 1</size></box></geometry></collision>
-      <visual name="v"><geometry><box><size>0.2 16 1</size></box></geometry>
+      <link name="l"><collision name="c"><geometry><box><size>0.5 16.5 1</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>0.5 16.5 1</size></box></geometry>
       <material><ambient>0.35 0.35 0.4 1</ambient><diffuse>0.35 0.35 0.4 1</diffuse></material></visual></link></model>
     <model name="wall_w"><static>true</static><pose>-8 0 0.5 0 0 0</pose>
-      <link name="l"><collision name="c"><geometry><box><size>0.2 16 1</size></box></geometry></collision>
-      <visual name="v"><geometry><box><size>0.2 16 1</size></box></geometry>
+      <link name="l"><collision name="c"><geometry><box><size>0.5 16.5 1</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>0.5 16.5 1</size></box></geometry>
       <material><ambient>0.35 0.35 0.4 1</ambient><diffuse>0.35 0.35 0.4 1</diffuse></material></visual></link></model>
 
     <!-- Internal walls: a partial divider (with a doorway gap) and a stub. -->
     <model name="wall_div"><static>true</static><pose>0 2 0.5 0 0 0</pose>
-      <link name="l"><collision name="c"><geometry><box><size>10 0.2 1</size></box></geometry></collision>
-      <visual name="v"><geometry><box><size>10 0.2 1</size></box></geometry>
+      <link name="l"><collision name="c"><geometry><box><size>10 0.5 1</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>10 0.5 1</size></box></geometry>
       <material><ambient>0.4 0.35 0.35 1</ambient><diffuse>0.4 0.35 0.35 1</diffuse></material></visual></link></model>
     <model name="wall_stub"><static>true</static><pose>-3 -4 0.5 0 0 0</pose>
-      <link name="l"><collision name="c"><geometry><box><size>0.2 6 1</size></box></geometry></collision>
-      <visual name="v"><geometry><box><size>0.2 6 1</size></box></geometry>
+      <link name="l"><collision name="c"><geometry><box><size>0.5 6 1</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>0.5 6 1</size></box></geometry>
       <material><ambient>0.4 0.35 0.35 1</ambient><diffuse>0.4 0.35 0.35 1</diffuse></material></visual></link></model>
 
     <!-- Drone (kinematic, gpu_lidar). Starts near the room centre. -->

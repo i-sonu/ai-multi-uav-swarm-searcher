@@ -72,7 +72,7 @@ class ExplorationNode(Node):
         self.declare_parameter("origin_x", -30.0)
         self.declare_parameter("origin_y", -30.0)
         self.declare_parameter("min_cluster_size", 3)
-        self.declare_parameter("max_speed", 1.0)
+        self.declare_parameter("max_speed", 0.7)
         self.declare_parameter("gain", 1.5)
         self.declare_parameter("waypoint_tol", 0.25)   # m: advance to next path cell
         self.declare_parameter("replan_period", 3.0)   # s: re-plan cadence
@@ -89,7 +89,8 @@ class ExplorationNode(Node):
         self.replan_period = float(self.get_parameter("replan_period").value)
         self.blacklist_after = int(self.get_parameter("blacklist_after").value)
 
-        self.grid: np.ndarray | None = None
+        self.grid: np.ndarray | None = None        # raw belief grid (for frontiers)
+        self.plan_grid: np.ndarray | None = None    # obstacle-inflated grid (for A*)
         self.pose: tuple[float, float, float] | None = None
         self.path: list[tuple[int, int]] = []
         self.path_idx = 0
@@ -106,8 +107,26 @@ class ExplorationNode(Node):
         self.get_logger().info("exploration_node up: frontier-driven autonomous exploration")
 
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _inflate(g: np.ndarray) -> np.ndarray:
+        """Grow OCCUPIED by one cell (8-connected) so paths keep a wall margin.
+
+        The Gazebo drone is a kinematic model with no collision response, so a
+        path that hugs a wall can clip through it. Inflating obstacles by one cell
+        (a minimal costmap inflation) keeps the planned path off the walls."""
+        occ = g == OCCUPIED
+        d = occ.copy()
+        d[:-1, :] |= occ[1:, :]; d[1:, :] |= occ[:-1, :]
+        d[:, :-1] |= occ[:, 1:]; d[:, 1:] |= occ[:, :-1]
+        d[:-1, :-1] |= occ[1:, 1:]; d[1:, 1:] |= occ[:-1, :-1]
+        d[:-1, 1:] |= occ[1:, :-1]; d[1:, :-1] |= occ[:-1, 1:]
+        out = g.copy()
+        out[d] = OCCUPIED
+        return out
+
     def _on_map(self, msg: OccupancyGridMsg) -> None:
         self.grid = _msg_to_grid(msg)
+        self.plan_grid = self._inflate(self.grid)
 
     def _on_odom(self, msg: Odometry) -> None:
         p = msg.pose.pose
@@ -139,9 +158,18 @@ class ExplorationNode(Node):
             self.path = []
             return
 
+        # Plan on the inflated grid, but never let inflation trap the drone's own
+        # cell (it may sit within a cell of a wall) — force the start traversable.
+        plan_grid = self.plan_grid
+        if plan_grid[start] == OCCUPIED:
+            plan_grid = plan_grid.copy()
+            plan_grid[start] = FREE
+
         goals.sort(key=lambda g: (g[0] - start[0]) ** 2 + (g[1] - start[1]) ** 2)
         for goal in goals:
-            plan = astar(self.grid, start, goal, True)
+            if plan_grid[goal] == OCCUPIED:
+                continue  # frontier sits inside the inflation margin — skip it
+            plan = astar(plan_grid, start, goal, True)
             if plan.path is not None and len(plan.path) >= 2:
                 self.path = plan.path
                 self.path_idx = 1
@@ -170,9 +198,10 @@ class ExplorationNode(Node):
             self._stop()
             return
 
-        # If the next cell became a wall as the map sharpened, force a re-plan.
+        # If the next cell became a wall (or wall-margin) as the map sharpened,
+        # force a re-plan rather than driving into it.
         nr, nc = self.path[self.path_idx]
-        if self.grid[nr, nc] == OCCUPIED:
+        if self.plan_grid[nr, nc] == OCCUPIED:
             self.path = []
             self._stop()
             return
