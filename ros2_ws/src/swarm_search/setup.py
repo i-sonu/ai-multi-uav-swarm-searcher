@@ -31,6 +31,8 @@ setup(
         "console_scripts": [
             # milestone 6a: drive one drone to a waypoint
             "waypoint_driver = swarm_search.waypoint_driver:main",
+            # milestone 6b: build the shared occupancy grid from LiDAR
+            "mapping_node = swarm_search.mapping_node:main",
         ],
     },
 )
