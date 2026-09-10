@@ -96,6 +96,7 @@ class MappingNode(Node):
             self.grid, self.pose, list(msg.ranges),
             angle_min=msg.angle_min, angle_increment=msg.angle_increment,
             range_max=msg.range_max, origin=self.origin, agent_id=self.agent_id,
+            occupied_sticky=True,  # don't let grazing beams punch holes in walls
         )
 
     def _publish_map(self) -> None:

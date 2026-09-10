@@ -74,10 +74,13 @@ class ExplorationNode(Node):
         self.declare_parameter("min_cluster_size", 3)
         self.declare_parameter("max_speed", 0.7)
         self.declare_parameter("gain", 1.5)
-        self.declare_parameter("waypoint_tol", 0.25)   # m: advance to next path cell
-        self.declare_parameter("replan_period", 3.0)   # s: re-plan cadence
-        self.declare_parameter("control_period", 0.1)  # s: cmd_vel rate
+        self.declare_parameter("waypoint_tol", 0.25)     # m: advance to next path cell
+        self.declare_parameter("replan_period", 1.0)     # s: refresh the PATH to the current goal
+        self.declare_parameter("control_period", 0.1)    # s: cmd_vel rate
         self.declare_parameter("blacklist_after", 3)
+        self.declare_parameter("goal_reach_radius", 0.6)  # m: current goal counts as reached
+        self.declare_parameter("goal_timeout", 20.0)     # s: give up on a goal we can't reach
+        self.declare_parameter("snap_radius_cells", 4)   # search radius to rescue a wall-orphaned goal
 
         self.res = float(self.get_parameter("resolution").value)
         self.origin = (float(self.get_parameter("origin_x").value),
@@ -88,13 +91,21 @@ class ExplorationNode(Node):
         self.wp_tol = float(self.get_parameter("waypoint_tol").value)
         self.replan_period = float(self.get_parameter("replan_period").value)
         self.blacklist_after = int(self.get_parameter("blacklist_after").value)
+        self.reach_radius = float(self.get_parameter("goal_reach_radius").value)
+        self.goal_timeout = float(self.get_parameter("goal_timeout").value)
+        self.snap_radius = int(self.get_parameter("snap_radius_cells").value)
 
         self.grid: np.ndarray | None = None        # raw belief grid (for frontiers)
         self.plan_grid: np.ndarray | None = None    # obstacle-inflated grid (for A*)
         self.pose: tuple[float, float, float] | None = None
         self.path: list[tuple[int, int]] = []
         self.path_idx = 0
-        self.last_plan = 0.0
+        # Goal persistence: commit to one frontier goal until it is reached, times
+        # out, or becomes unreachable — re-selecting the nearest every cycle makes
+        # the drone dither between two near-equidistant frontiers (oscillation).
+        self.goal: tuple[int, int] | None = None
+        self.goal_since = 0.0
+        self.last_path_plan = 0.0
         self.blacklist: set[tuple[int, int]] = set()
         self.failures: dict[tuple[int, int], int] = {}
         self.done = False
@@ -142,71 +153,135 @@ class ExplorationNode(Node):
         self.cmd_pub.publish(Twist())
 
     # ------------------------------------------------------------------ #
-    def _plan(self) -> None:
-        """Pick the nearest frontier and A*-plan a path to it (Phase 2 logic)."""
-        start = self._cell(self.pose[0], self.pose[1])
+    def _planning_grid(self, start: tuple[int, int]) -> np.ndarray:
+        """Inflated grid, but with the drone's own cell forced traversable (it may
+        sit within one cell of a wall, which inflation would otherwise seal in)."""
+        pg = self.plan_grid
+        if pg[start] == OCCUPIED:
+            pg = pg.copy()
+            pg[start] = FREE
+        return pg
+
+    def _snap(self, goal: tuple[int, int], plan_grid: np.ndarray) -> tuple[int, int] | None:
+        """Rescue a frontier that fell inside the wall-inflation margin.
+
+        A frontier cell hard against a thin wall becomes OCCUPIED after inflation,
+        so A* could never target it and the drone would loop back to it forever.
+        Snap it to the nearest non-inflated cell within ``snap_radius`` (spiral
+        search); return None if the whole neighbourhood is blocked (then it is
+        blacklisted by the caller)."""
+        if plan_grid[goal] != OCCUPIED:
+            return goal
+        gr, gc = goal
+        h, w = plan_grid.shape
+        for rad in range(1, self.snap_radius + 1):
+            best = None
+            best_d = None
+            for dr in range(-rad, rad + 1):
+                for dc in range(-rad, rad + 1):
+                    r, c = gr + dr, gc + dc
+                    if 0 <= r < h and 0 <= c < w and plan_grid[r, c] == FREE:
+                        d = dr * dr + dc * dc
+                        if best_d is None or d < best_d:
+                            best, best_d = (r, c), d
+            if best is not None:
+                return best
+        return None
+
+    def _select_goal(self, start: tuple[int, int]) -> None:
+        """Choose a NEW frontier goal (nearest reachable) and plan a path to it.
+
+        Called only when there is no committed goal, or the current one was
+        reached / timed out / became unreachable — this commitment is what stops
+        the oscillation."""
         mask = find_frontiers(self.grid)
         clusters = cluster_frontiers(mask, self.min_cluster)
-        goals = [c.representative for c in clusters if c.representative not in self.blacklist]
-        if not goals:  # thin-corridor fallback, as in explore()
+        cand = [c.representative for c in clusters if c.representative not in self.blacklist]
+        if not cand:  # thin-corridor fallback, as in explore()
             clusters = cluster_frontiers(mask, min_cluster_size=1)
-            goals = [c.representative for c in clusters if c.representative not in self.blacklist]
-        if not goals:
+            cand = [c.representative for c in clusters if c.representative not in self.blacklist]
+        if not cand:
             if not self.done:
                 self.get_logger().info("exploration complete: no frontiers remain")
             self.done = True
-            self.path = []
+            self.goal, self.path = None, []
             return
 
-        # Plan on the inflated grid, but never let inflation trap the drone's own
-        # cell (it may sit within a cell of a wall) — force the start traversable.
-        plan_grid = self.plan_grid
-        if plan_grid[start] == OCCUPIED:
-            plan_grid = plan_grid.copy()
-            plan_grid[start] = FREE
-
-        goals.sort(key=lambda g: (g[0] - start[0]) ** 2 + (g[1] - start[1]) ** 2)
-        for goal in goals:
-            if plan_grid[goal] == OCCUPIED:
-                continue  # frontier sits inside the inflation margin — skip it
+        plan_grid = self._planning_grid(start)
+        cand.sort(key=lambda g: (g[0] - start[0]) ** 2 + (g[1] - start[1]) ** 2)
+        for raw_goal in cand:
+            goal = self._snap(raw_goal, plan_grid)
+            if goal is None:
+                self._fail(raw_goal)
+                continue
             plan = astar(plan_grid, start, goal, True)
             if plan.path is not None and len(plan.path) >= 2:
+                self.goal = goal
                 self.path = plan.path
                 self.path_idx = 1
+                self.goal_since = time.monotonic()
+                self.last_path_plan = time.monotonic()
                 self.done = False
                 return
-            self.failures[goal] = self.failures.get(goal, 0) + 1
-            if self.failures[goal] >= self.blacklist_after:
-                self.blacklist.add(goal)
-        self.path = []  # nothing plannable this cycle
+            self._fail(raw_goal)
+        self.goal, self.path = None, []  # nothing reachable this cycle; retry next
+
+    def _fail(self, goal: tuple[int, int]) -> None:
+        self.failures[goal] = self.failures.get(goal, 0) + 1
+        if self.failures[goal] >= self.blacklist_after:
+            self.blacklist.add(goal)
+
+    def _replan_path(self, start: tuple[int, int]) -> None:
+        """Refresh the path to the CURRENT goal as the map sharpens (goal kept)."""
+        plan_grid = self._planning_grid(start)
+        if plan_grid[self.goal] == OCCUPIED:      # goal swallowed by a wall now
+            self.goal = None
+            return
+        plan = astar(plan_grid, start, self.goal, True)
+        if plan.path is not None and len(plan.path) >= 2:
+            self.path = plan.path
+            self.path_idx = 1
+        else:
+            self._fail(self.goal)
+            self.goal = None                       # can't reach it; pick another
 
     def _control(self) -> None:
-        if self.grid is None or self.pose is None:
+        if self.grid is None or self.pose is None or self.plan_grid is None:
             return
         now = time.monotonic()
+        start = self._cell(self.pose[0], self.pose[1])
 
-        need_replan = (
-            not self.path
-            or self.path_idx >= len(self.path)
-            or (now - self.last_plan) > self.replan_period
-        )
-        if need_replan:
-            self.last_plan = now
-            self._plan()
+        # 1) Retire the current goal if reached, timed out, or now inside a wall.
+        if self.goal is not None:
+            gx, gy = self._world(*self.goal)
+            if math.hypot(gx - self.pose[0], gy - self.pose[1]) <= self.reach_radius:
+                self.goal = None
+            elif (now - self.goal_since) > self.goal_timeout:
+                self._fail(self.goal)
+                self.goal = None
+            elif self.plan_grid[self.goal] == OCCUPIED:
+                self.goal = None
 
-        if self.done or not self.path or self.path_idx >= len(self.path):
+        # 2) Pick a new goal, or periodically refresh the path to the current one.
+        if self.goal is None:
+            self._select_goal(start)
+        elif (not self.path or self.path_idx >= len(self.path)
+              or (now - self.last_path_plan) > self.replan_period):
+            self.last_path_plan = now
+            self._replan_path(start)
+
+        if self.done or self.goal is None or not self.path or self.path_idx >= len(self.path):
             self._stop()
             return
 
-        # If the next cell became a wall (or wall-margin) as the map sharpened,
-        # force a re-plan rather than driving into it.
+        # 3) If the next cell just became a wall/margin, refresh the path.
         nr, nc = self.path[self.path_idx]
         if self.plan_grid[nr, nc] == OCCUPIED:
-            self.path = []
+            self._replan_path(start)
             self._stop()
             return
 
-        # Drive toward the current path cell with a clamped P-controller.
+        # 4) Drive toward the current path cell with a clamped P-controller.
         tx, ty = self._world(nr, nc)
         ex, ey = tx - self.pose[0], ty - self.pose[1]
         if math.hypot(ex, ey) <= self.wp_tol:

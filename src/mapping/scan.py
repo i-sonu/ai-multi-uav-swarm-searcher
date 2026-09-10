@@ -51,6 +51,7 @@ def integrate_scan(
     *,
     origin: tuple[float, float] = (0.0, 0.0),
     agent_id: int = 0,
+    occupied_sticky: bool = False,
 ) -> int:
     """Fold one LaserScan into ``grid``; return the number of cells updated.
 
@@ -66,6 +67,12 @@ def integrate_scan(
         origin: world coordinate of grid cell ``(0, 0)``'s centre — lets the grid
             cover negative world coordinates (the Gazebo world spans the origin).
         agent_id: which drone observed this (for per-cell observation bookkeeping).
+        occupied_sticky: if True, a beam passing *through* a cell already marked
+            OCCUPIED does not overwrite it back to FREE. Real LiDAR viewed along a
+            thin wall at a grazing angle otherwise punches FREE holes in the wall
+            (a limitation of the last-write-wins grid), which the sensor then
+            "sees through" to mark space beyond the wall as free. Keeping occupied
+            cells sticky seals those holes. Direct hits still mark OCCUPIED.
     """
     res = grid.resolution
     ox, oy = origin
@@ -87,6 +94,9 @@ def integrate_scan(
         for k, (cr, cc) in enumerate(cells):
             last = k == len(cells) - 1
             value = OCCUPIED if (last and hit) else FREE
+            if (occupied_sticky and value == FREE
+                    and grid.in_bounds(cr, cc) and grid.grid[cr, cc] == OCCUPIED):
+                continue  # don't erase a known wall with a grazing free ray
             grid.update_cell(cr, cc, value, agent_id=agent_id)
             updated += 1
     return updated
