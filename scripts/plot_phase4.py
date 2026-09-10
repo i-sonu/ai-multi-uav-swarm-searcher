@@ -139,9 +139,12 @@ def plot_e5(summary: pd.DataFrame) -> None:
     ax1.set_title("(a) Targets localised by strategy (higher = better)")
     ax1.legend(title="method"); ax1.grid(axis="y", alpha=0.3)
     # (b) time-to-first-detection (lower = faster), uncensored mean.
+    def _mean_ttfd(sub):
+        v = pd.to_numeric(sub["time_to_first_detection"], errors="coerce").dropna()
+        return float(v.mean()) if len(v) else float("nan")
+
     for i, method in enumerate(methods):
-        means = [_mean_ttc(summary[(summary.map_kind == m) & (summary.method == method)]
-                           .rename(columns={"time_to_first_detection": "time_to_90"}))
+        means = [_mean_ttfd(summary[(summary.map_kind == m) & (summary.method == method)])
                  for m in MAPS]
         ax2.bar(x + (i - 1) * width, means, width, label=method, color=METHOD_COLORS[method])
     ax2.set_xticks(x); ax2.set_xticklabels(MAPS)
