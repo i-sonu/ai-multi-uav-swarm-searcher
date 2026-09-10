@@ -33,6 +33,8 @@ setup(
             "waypoint_driver = swarm_search.waypoint_driver:main",
             # milestone 6b: build the shared occupancy grid from LiDAR
             "mapping_node = swarm_search.mapping_node:main",
+            # milestone 6c: autonomous frontier-driven exploration
+            "exploration_node = swarm_search.exploration_node:main",
         ],
     },
 )
