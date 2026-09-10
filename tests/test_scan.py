@@ -48,6 +48,24 @@ def test_origin_offset_supports_negative_world_coords():
     assert grid.grid[20, 22] == FREE
 
 
+def test_occupied_sticky_seals_grazing_holes():
+    """A grazing beam passing through a known wall cell must not erase it when
+    occupied_sticky=True (prevents the LiDAR seeing through thin walls)."""
+    grid = OccupancyGrid(20, 20, resolution=0.25)
+    # First: a direct hit marks cell (10,14) OCCUPIED.
+    integrate_scan(grid, pose=(2.5, 2.5, 0.0), ranges=[1.0],
+                   angle_min=0.0, angle_increment=0.0, range_max=12.0)
+    assert grid.grid[10, 14] == OCCUPIED
+    # Then: a longer beam through that same cell would mark it FREE. Sticky keeps it.
+    integrate_scan(grid, pose=(2.5, 2.5, 0.0), ranges=[3.0],
+                   angle_min=0.0, angle_increment=0.0, range_max=12.0, occupied_sticky=True)
+    assert grid.grid[10, 14] == OCCUPIED  # wall preserved
+    # Without sticky, the same grazing beam would overwrite it to FREE.
+    integrate_scan(grid, pose=(2.5, 2.5, 0.0), ranges=[3.0],
+                   angle_min=0.0, angle_increment=0.0, range_max=12.0, occupied_sticky=False)
+    assert grid.grid[10, 14] == FREE
+
+
 def test_heading_rotates_the_beam():
     grid = OccupancyGrid(20, 20, resolution=0.25)
     # Facing +y (theta = pi/2), a "forward" beam (angle_min 0) should hit north.
