@@ -121,6 +121,39 @@ def plot_e4(summary: pd.DataFrame) -> None:
     plt.close(fig)
 
 
+# --------------------------------------------------------------------------- #
+# E5 — exploration strategy vs detection outcomes
+# --------------------------------------------------------------------------- #
+def plot_e5(summary: pd.DataFrame) -> None:
+    methods = ["none", "greedy", "hungarian"]
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
+    x = np.arange(len(MAPS))
+    width = 0.25
+    # (a) fraction of targets localised (higher = better).
+    for i, method in enumerate(methods):
+        means = [summary[(summary.map_kind == m) & (summary.method == method)].frac_localised.mean()
+                 for m in MAPS]
+        ax1.bar(x + (i - 1) * width, means, width, label=method, color=METHOD_COLORS[method])
+    ax1.set_xticks(x); ax1.set_xticklabels(MAPS)
+    ax1.set_ylabel("fraction of targets localised"); ax1.set_ylim(0, 1)
+    ax1.set_title("(a) Targets localised by strategy (higher = better)")
+    ax1.legend(title="method"); ax1.grid(axis="y", alpha=0.3)
+    # (b) time-to-first-detection (lower = faster), uncensored mean.
+    for i, method in enumerate(methods):
+        means = [_mean_ttc(summary[(summary.map_kind == m) & (summary.method == method)]
+                           .rename(columns={"time_to_first_detection": "time_to_90"}))
+                 for m in MAPS]
+        ax2.bar(x + (i - 1) * width, means, width, label=method, color=METHOD_COLORS[method])
+    ax2.set_xticks(x); ax2.set_xticklabels(MAPS)
+    ax2.set_ylabel("steps to first detection (mean, uncensored)")
+    ax2.set_title("(b) Time-to-first-detection by strategy (lower = faster)")
+    ax2.legend(title="method"); ax2.grid(axis="y", alpha=0.3)
+    fig.suptitle("E5: exploration strategy vs detection (2 agents, 8 targets, 30 seeds/map)")
+    fig.tight_layout()
+    fig.savefig(FIG_DIR / "e5_strategy_vs_detection.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
 def main() -> None:
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     made = []
@@ -130,6 +163,8 @@ def main() -> None:
         plot_e3(pd.read_csv(RAW / "e3_steps.csv")); made.append("e3_team_size.png")
     if (RAW / "e4_summary.csv").exists():
         plot_e4(pd.read_csv(RAW / "e4_summary.csv")); made.append("e4_lambda_sweep.png")
+    if (RAW / "e5_summary.csv").exists():
+        plot_e5(pd.read_csv(RAW / "e5_summary.csv")); made.append("e5_strategy_vs_detection.png")
     print(f"wrote {len(made)} figures to {FIG_DIR}/: {', '.join(made) or '(no input CSVs found)'}")
 
 

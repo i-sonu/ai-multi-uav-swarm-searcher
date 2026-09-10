@@ -43,11 +43,24 @@ class Renderer:
         self._im = None
 
     # --------------------------------------------------------------------- #
-    def draw(self, grid: np.ndarray, agents: Sequence = (), title: str | None = None) -> None:
+    def draw(
+        self,
+        grid: np.ndarray,
+        agents: Sequence = (),
+        title: str | None = None,
+        targets: Sequence = (),
+        register=None,
+    ) -> None:
         """Draw one frame: the grid, each agent, and its remaining path.
 
         ``agents`` is any sequence of objects exposing ``.x``, ``.y``, ``.id``
         and (optionally) ``.path`` / ``.path_idx`` — i.e. ``Agent`` instances.
+
+        Phase 5 overlays (both optional): ``targets`` are the ground-truth targets
+        (drawn as hollow green squares — where things actually are); ``register``
+        is a ``TargetRegister`` whose fused estimates are drawn as red ``x`` marks
+        (where the system *believes* they are). The gap between the two is the
+        localisation error made visible.
         """
         rgb = grid_to_rgb(grid)
         if self._im is None:
@@ -76,6 +89,16 @@ class Renderer:
                     self.ax.plot(xs, ys, "-", color=color, linewidth=1.0, alpha=0.7)
             # Agent marker.
             self.ax.plot(a.x, a.y, "o", color=color, markersize=8, markeredgecolor="k")
+
+        # Ground-truth targets: hollow green squares (true locations).
+        for t in targets:
+            tx, ty = t.world_xy(self.resolution)
+            self.ax.plot(tx, ty, "s", markerfacecolor="none", markeredgecolor="#2ca02c",
+                         markersize=11, markeredgewidth=2)
+        # Registered estimates: red x marks (believed locations).
+        if register is not None:
+            for e in register.entries():
+                self.ax.plot(e.x, e.y, "x", color="#d62728", markersize=9, markeredgewidth=2)
 
         if title:
             self.ax.set_title(title)

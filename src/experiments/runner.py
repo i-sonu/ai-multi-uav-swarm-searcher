@@ -62,6 +62,15 @@ class RunConfig:
     lambda_cost: float = 1.0
     replan_every: int = 10
     start_layout: str = "base"
+    # --- detection / registration (Phase 5, half B) ---
+    with_targets: bool = False   # place targets + run the simulated detector
+    n_targets: int = 8
+    cam_range_m: float = 6.0
+    cam_fov_deg: float = 90.0
+    recall: float = 0.9
+    loc_noise_m: float = 0.3
+    dedup_radius_m: float = 1.0
+    loc_tolerance_m: float = 1.0
 
 
 @dataclass
@@ -85,6 +94,15 @@ class RunRecord:
     plan_mean_ms: float
     plan_p95_ms: float
     wall_time_s: float
+    # --- detection (populated only when with_targets; else None) ---
+    n_targets: object = None
+    n_registered: object = None
+    true_positives: object = None
+    false_positives: object = None
+    frac_localised: object = None
+    time_to_first_detection: object = None
+    loc_err_mean_m: object = None
+    loc_err_p95_m: object = None
 
 
 def run_single(cfg: RunConfig) -> tuple[RunRecord, list[float]]:
@@ -104,8 +122,36 @@ def run_single(cfg: RunConfig) -> tuple[RunRecord, list[float]]:
         if cfg.n_agents != 1:
             raise ValueError("method='single' is single-agent; use an allocation method for n_agents>1")
         starts = [center_free_cell(gt)]
-        agents = [Agent(0, (starts[0][1] * cfg.resolution, starts[0][0] * cfg.resolution, 0.0),
-                        resolution=cfg.resolution)]
+    else:
+        starts = team_start_cells(gt, cfg.n_agents, layout=cfg.start_layout)
+    agents = [
+        Agent(i, (s[1] * cfg.resolution, s[0] * cfg.resolution, 0.0), resolution=cfg.resolution)
+        for i, s in enumerate(starts)
+    ]
+
+    # Coverage denominator: union of every agent's reachable-free region (also the
+    # cell set targets are placed on, so every target is in principle findable).
+    reachable = np.zeros(gt.shape, dtype=bool)
+    for s in starts:
+        reachable |= reachable_free_mask(gt, s)
+
+    # Optional detection layer (Phase 5, half B) — decoupled from planning.
+    detector = register = targets = None
+    if cfg.with_targets:
+        from src.perception.detector import SimulatedDetector
+        from src.perception.registration import TargetRegister
+        from src.perception.targets import place_targets
+
+        targets = place_targets(cfg.n_targets, cfg.seed, reachable_mask=reachable,
+                                resolution=cfg.resolution)
+        detector = SimulatedDetector(
+            gt, targets, seed=cfg.seed, resolution=cfg.resolution,
+            range_m=cfg.cam_range_m, fov_deg=cfg.cam_fov_deg,
+            recall=cfg.recall, localisation_noise_m=cfg.loc_noise_m,
+        )
+        register = TargetRegister(dedup_radius_m=cfg.dedup_radius_m)
+
+    if cfg.method == "single":
         result = explore(
             gt, grid, agents[0], planner,
             n_beams=cfg.n_beams, max_range=cfg.max_range,
@@ -113,27 +159,29 @@ def run_single(cfg: RunConfig) -> tuple[RunRecord, list[float]]:
             collect_metrics=True,
         )
     else:
-        starts = team_start_cells(gt, cfg.n_agents, layout=cfg.start_layout)
-        agents = [
-            Agent(i, (s[1] * cfg.resolution, s[0] * cfg.resolution, 0.0), resolution=cfg.resolution)
-            for i, s in enumerate(starts)
-        ]
         result = explore_team(
             gt, grid, agents, planner,
             method=cfg.method, lambda_cost=cfg.lambda_cost,
             n_beams=cfg.n_beams, max_range=cfg.max_range,
             min_cluster_size=cfg.min_cluster_size, max_steps=cfg.max_steps,
             replan_every=cfg.replan_every, collect_metrics=True,
+            detector=detector, register=register,
         )
     wall = time.perf_counter() - t0
 
-    # Coverage denominator: union of every agent's reachable-free region.
-    reachable = np.zeros(gt.shape, dtype=bool)
-    for s in starts:
-        reachable |= reachable_free_mask(gt, s)
     final_cov = coverage_percentage(grid.grid, reachable)
     node_stats = nodes_expanded_stats(result.plan_nodes)
     wc_stats = planning_wallclock_stats(result.plan_wallclock)
+
+    det = {}
+    if cfg.with_targets:
+        from src.metrics.metrics import detection_metrics
+
+        det = detection_metrics(register, targets, cfg.resolution, cfg.loc_tolerance_m)
+
+    def _r(key, ndigits=None):
+        v = det.get(key)
+        return round(v, ndigits) if (v is not None and ndigits is not None) else v
 
     record = RunRecord(
         planner=cfg.planner,
@@ -155,6 +203,14 @@ def run_single(cfg: RunConfig) -> tuple[RunRecord, list[float]]:
         plan_mean_ms=round(wc_stats["mean_s"] * 1e3, 4),
         plan_p95_ms=round(wc_stats["p95_s"] * 1e3, 4),
         wall_time_s=round(wall, 2),
+        n_targets=det.get("n_targets"),
+        n_registered=det.get("n_registered"),
+        true_positives=det.get("true_positives"),
+        false_positives=det.get("false_positives"),
+        frac_localised=_r("fraction_localised", 4),
+        time_to_first_detection=det.get("time_to_first_detection"),
+        loc_err_mean_m=_r("mean_localisation_error_m", 4),
+        loc_err_p95_m=_r("p95_localisation_error_m", 4),
     )
     return record, result.coverage_series
 
