@@ -72,18 +72,14 @@ class ExplorationNode(Node):
         self.declare_parameter("origin_x", -30.0)
         self.declare_parameter("origin_y", -30.0)
         self.declare_parameter("min_cluster_size", 3)
-        self.declare_parameter("max_speed", 2.4)         # m/s per axis (3x the earlier 0.8)
+        self.declare_parameter("max_speed", 0.7)
         self.declare_parameter("gain", 1.5)
         self.declare_parameter("waypoint_tol", 0.25)     # m: advance to next path cell
         self.declare_parameter("replan_period", 1.0)     # s: refresh the PATH to the current goal
-        # 20 Hz control keeps per-tick travel (~0.12 m at 2.4 m/s) under the 1-cell
-        # (0.25 m) wall-inflation margin, so the drone still can't tunnel through walls.
-        self.declare_parameter("control_period", 0.05)   # s: cmd_vel rate
+        self.declare_parameter("control_period", 0.1)    # s: cmd_vel rate
         self.declare_parameter("blacklist_after", 3)
         self.declare_parameter("goal_reach_radius", 0.6)  # m: current goal counts as reached
-        self.declare_parameter("goal_timeout", 75.0)     # s: give up on a goal we can't reach
-                                                          # (generous: a far goal in a big map
-                                                          #  can be ~45 s of travel away)
+        self.declare_parameter("goal_timeout", 20.0)     # s: give up on a goal we can't reach
         self.declare_parameter("snap_radius_cells", 4)   # search radius to rescue a wall-orphaned goal
 
         self.res = float(self.get_parameter("resolution").value)

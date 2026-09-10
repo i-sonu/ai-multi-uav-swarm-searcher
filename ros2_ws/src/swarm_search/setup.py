@@ -35,6 +35,8 @@ setup(
             "mapping_node = swarm_search.mapping_node:main",
             # milestone 6c: autonomous frontier-driven exploration
             "exploration_node = swarm_search.exploration_node:main",
+            # milestone 6d: coordinated multi-drone exploration (Phase 4 allocator)
+            "coordination_node = swarm_search.coordination_node:main",
         ],
     },
 )
