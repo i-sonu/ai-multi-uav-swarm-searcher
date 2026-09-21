@@ -14,9 +14,9 @@ class CameraSensor:
     def __init__(
         self,
         range_m: float = 6.0,
-        recall_person: float = 0.26,
-        recall_vehicle: float = 0.40,
-        loc_noise_std_m: float = 0.3,
+        recall_person: float = 0.51,
+        recall_vehicle: float = 0.76,
+        loc_noise_std_m: float = 0.25,
     ):
         """
         Args:
