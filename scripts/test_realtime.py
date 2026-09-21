@@ -1,19 +1,21 @@
 """Real-Time Inference Tester for Fine-Tuned YOLOv8s SAR Aerial Detector (22.5 MB best.pt).
 
 Usage:
-    # 1. Test on live laptop webcam (real-time camera feed with bounding boxes and FPS)
+    # 1. Test on 10 random aerial drone images from VisDrone:
+    python -m scripts.test_realtime --source aerial --num 10 --random
+
+    # 2. Test on a specific image or custom folder:
+    python -m scripts.test_realtime --source path/to/image.jpg
+    python -m scripts.test_realtime --source path/to/folder/
+
+    # 3. Test on live laptop webcam:
     python -m scripts.test_realtime --source webcam
-
-    # 2. Test on VisDrone aerial images
-    python -m scripts.test_realtime --source aerial
-
-    # 3. Test on any custom image or video file
-    python -m scripts.test_realtime --source path/to/image_or_video.jpg
 """
 
 import argparse
 import glob
 import os
+import random
 import sys
 import time
 from pathlib import Path
@@ -25,7 +27,18 @@ def main():
     parser.add_argument(
         "--source",
         default="aerial",
-        help="'webcam' (or '0') for live camera, 'aerial' for VisDrone images, or a path to an image/video file",
+        help="'aerial' for VisDrone images, 'webcam' (or '0') for live camera, or a path to an image/folder",
+    )
+    parser.add_argument(
+        "--num",
+        type=int,
+        default=5,
+        help="Number of aerial images to test (default: 5)",
+    )
+    parser.add_argument(
+        "--random",
+        action="store_true",
+        help="Pick random images from the dataset instead of sequential",
     )
     parser.add_argument(
         "--weights",
@@ -45,7 +58,7 @@ def main():
     print("=" * 70)
     print(f"Loading YOLOv8 model: {weights_path} ({size_mb:.1f} MB)")
     model = YOLO(str(weights_path))
-    print(f"Model classes: {model.names}")
+    print(f"Target classes: {model.names}")
     print(f"Confidence threshold: {args.conf} | Resolution: {args.imgsz}x{args.imgsz}")
     print("=" * 70)
 
@@ -96,42 +109,50 @@ def main():
         imgs = sorted(glob.glob(img_pattern))
         if not imgs:
             print(f"No VisDrone images found matching '{img_pattern}'.")
-            print("Please specify a valid image file with --source <path>")
             sys.exit(1)
 
-        selected_imgs = imgs[:5]
-        print(f"\n--> Running real-time inference on {len(selected_imgs)} aerial drone images...")
+        if args.random:
+            selected_imgs = random.sample(imgs, min(args.num, len(imgs)))
+        else:
+            selected_imgs = imgs[: args.num]
+
+        out_name = f"aerial_test_{int(time.time())}"
+        print(f"\n--> Running inference on {len(selected_imgs)} aerial drone images...")
         results = model.predict(
             source=selected_imgs,
             conf=args.conf,
             imgsz=args.imgsz,
             save=True,
             project="runs/detect",
-            name="realtime_test",
-            exist_ok=True,
+            name=out_name,
         )
 
+        print("\n" + "-" * 70)
+        print("DETECTION BREAKDOWN PER FRAME:")
+        print("-" * 70)
         for i, res in enumerate(results):
             boxes = res.boxes
-            n_targets = len(boxes)
             counts = {}
             for cls_idx in boxes.cls.cpu().numpy():
                 cname = model.names.get(int(cls_idx), str(cls_idx))
                 counts[cname] = counts.get(cname, 0) + 1
 
             summary = ", ".join(f"{v} {k}(s)" for k, v in counts.items()) if counts else "No targets detected"
-            print(f"  Frame {i+1} ({Path(res.path).name}): {n_targets} targets detected -> {summary}")
+            print(f"  Frame {i+1} [{Path(res.path).name}]: {len(boxes)} targets -> {summary}")
 
-        out_dir = Path("runs/detect/realtime_test")
-        print(f"\n--> Annotated output images saved to: {out_dir.resolve()}")
+        out_dir = Path("runs/detect") / out_name
+        print("-" * 70)
+        print(f"--> All annotated images saved to:")
+        print(f"    {out_dir.resolve()}")
 
-    # Mode 3: Custom Image or Video File
+    # Mode 3: Custom Image, Video, or Folder
     else:
         src_path = Path(args.source)
         if not src_path.exists():
             print(f"Error: Source '{args.source}' not found!")
             sys.exit(1)
 
+        out_name = f"custom_test_{int(time.time())}"
         print(f"\n--> Running inference on custom source: {src_path}")
         results = model.predict(
             source=str(src_path),
@@ -139,10 +160,10 @@ def main():
             imgsz=args.imgsz,
             save=True,
             project="runs/detect",
-            name="custom_test",
-            exist_ok=True,
+            name=out_name,
         )
-        print(f"Output saved to: runs/detect/custom_test")
+        out_dir = Path("runs/detect") / out_name
+        print(f"\n--> Annotated output saved to: {out_dir.resolve()}")
 
 
 if __name__ == "__main__":
