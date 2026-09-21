@@ -12,10 +12,10 @@ This project formulates the mission as a combined **Autonomous Exploration + Mul
 
 ## 2. Core AI Modules & Algorithmic Design
 
-### A. Graph Path Planning Algorithms (src/planning/)
+### A. Graph Path Planning Algorithms (`src/planning/`)
 Path planning enables agents to traverse unknown occupancy maps safely along obstacle-free trajectories. Four state-space graph search algorithms are implemented and benchmarked:
 
-1. **A\* Search (src/planning/astar.py):**
+1. **A\* Search (`src/planning/astar.py`):**
    - Heuristic Function: Euclidean distance \(h(n) = \sqrt{(x_n - x_g)^2 + (y_n - y_g)^2}\).
    - Priority Queue Key: \(f(n) = g(n) + h(n)\), where \(g(n)\) is exact path cost.
    - Admissibility & Consistency: Euclidean metric guarantees optimal path discovery with minimum node expansion.
@@ -25,18 +25,18 @@ Path planning enables agents to traverse unknown occupancy maps safely along obs
 
 ---
 
-### B. Autonomous Frontier Detection & Spatial Clustering (src/frontier/)
+### B. Autonomous Frontier Detection & Spatial Clustering (`src/frontier/`)
 Exploration is driven by discovering and reaching **frontiers**—the boundary cells separating known free space from unexplored unknown space.
 
-1. **Frontier Extraction (src/frontier/detection.py):**
+1. **Frontier Extraction (`src/frontier/detection.py`):**
    - A cell \(c\) is a frontier if \(c \in \text{FREE}\) and at least one neighbor \(n(c) \in \text{UNKNOWN}\).
-2. **Frontier Clustering (src/frontier/clustering.py):**
+2. **Frontier Clustering (`src/frontier/clustering.py`):**
    - Raw frontier cell sets are aggregated into spatial clusters using distance-based DBSCAN or connected components.
    - Clustering reduces task allocation complexity from thousands of raw grid cells to \(K\) discrete frontier centroids.
 
 ---
 
-### C. Multi-Agent Task Allocation (MATA) Engine (src/planning/allocation.py)
+### C. Multi-Agent Task Allocation (MATA) Engine (`src/planning/allocation.py`)
 To prevent redundant coverage, task assignment dynamically pairs \(N\) UAV agents to \(K\) active frontier clusters.
 
 1. **Cost Matrix Computation:**
@@ -48,54 +48,60 @@ To prevent redundant coverage, task assignment dynamically pairs \(N\) UAV agent
 4. **Allocation Algorithms:**
    - **Baseline B2 (Uncoordinated Nearest Frontier):** Each agent greedily targets its closest frontier independently, leading to heavy redundant coverage.
    - **Greedy Swarm Allocator:** Highest global score pair \((i, j)\) assigned sequentially, removing chosen frontier from pool.
-   - **Optimal Hungarian Assignment:** Solves bipartite matching using scipy.optimize.linear_sum_assignment to optimize overall team objective \(\max \sum S_{i, j}\).
+   - **Optimal Hungarian Assignment:** Solves bipartite matching using `scipy.optimize.linear_sum_assignment` to optimize overall team objective \(\max \sum S_{i, j}\).
 
 ---
 
-### D. Computer Vision & Target Localisation (src/perception/)
+### D. Computer Vision & Target Localisation (`src/perception/`)
 Agents carry down-looking camera sensors to detect targets (e.g., humans or vehicles) during flight.
 
-1. **Aerial Object Detector (src/perception/train.py):**
+1. **Aerial Object Detector (`src/perception/train.py`):**
    - Fine-tuned light-weight convolutional network (YOLOv8 / MobileNet-SSD) trained on aerial person detection datasets.
    - Outputs bounding boxes \((b_x, b_y, w, h)\) and classification confidence scores.
-2. **Spatial Target Registration (src/perception/registration.py):**
+2. **Spatial Target Registration (`src/perception/registration.py`):**
    - Projects 2D image detections through current agent pose \((x_a, y_a, \theta_a)\) onto world map coordinates \((X_w, Y_w)\).
-   - **Spatial Deduplication & Fusion:** Maintains a global TargetRegister. Duplicate detections across agents within a spatial threshold \(\Delta r\) are merged, updating confidence scores.
+   - **Spatial Deduplication & Fusion:** Maintains a global `TargetRegister`. Duplicate detections across agents within a spatial threshold \(\Delta r\) are merged, updating confidence scores.
 
 ---
 
-## 3. Empirical Benchmarks & Experiments
+## 3. Empirical Benchmarks & Detailed Reports
 
-- **Experiment E1 (Completed):** Single-agent planner comparison (A\* vs BFS vs DFS vs UCS across 480 runs).
-  - *Key Finding:* A\* expands ~8× fewer nodes and executes ~7× faster than UCS/BFS while achieving optimal path lengths.
-- **Experiment E2 (Phase 4):** Allocation Ablation (Uncoordinated vs Greedy vs Hungarian Coordinated Task Allocation).
-- **Experiment E3 (Phase 4):** Swarm Size Scaling (\(N = 1, 2, 3\) agents under equal cumulative flight time budgets).
-- **Experiment E4 (Phase 4):** Cost-Utility Weight \(\lambda\) Hyperparameter Sensitivity Analysis.
-- **Experiment E5 (Phase 5):** Target Localisation Precision & Detection Rate vs Exploration Strategy.
+- **Experiment E1 (Completed):** Single-agent planner comparison — [docs/results_e1.md](file:///Ubuntu-24.04/home/sai/Projects/ai-multi-uav-swarm-searcher/docs/results_e1.md)
+- **Experiment E2 (Completed):** Allocation Ablation (Uncoordinated vs Greedy vs Hungarian) — [docs/results_e2.md](file:///Ubuntu-24.04/home/sai/Projects/ai-multi-uav-swarm-searcher/docs/results_e2.md)
+- **Experiment E3 (Completed):** Swarm Size Scaling (\(N = 1, 2, 3\) agents) — [docs/results_e3.md](file:///Ubuntu-24.04/home/sai/Projects/ai-multi-uav-swarm-searcher/docs/results_e3.md)
+- **Experiment E4 (Completed):** Cost-Utility Weight \(\lambda\) Sensitivity Analysis — [docs/results_e4.md](file:///Ubuntu-24.04/home/sai/Projects/ai-multi-uav-swarm-searcher/docs/results_e4.md)
+- **Master Findings (E1–E4):** Executive inferences and synthesis — [docs/EXECUTIVE_FINDINGS_E1_E4.md](file:///Ubuntu-24.04/home/sai/Projects/ai-multi-uav-swarm-searcher/docs/EXECUTIVE_FINDINGS_E1_E4.md)
 
 ---
 
 ## 4. Execution & Verification Guide
 
 ### Single-Agent Baseline Demos
-`ash
+```bash
 # Phase 1: Fixed Patrol LiDAR demo
 python -m scripts.demo_phase1 --map office
 
 # Phase 2: Single-Agent Autonomous Exploration with A*
 python -m scripts.demo_phase2 --map office
-`
+```
 
 ### Reproducing Benchmark Experiments
-`ash
+```bash
 # Run Experiment E1 (Single-agent planner sweep)
-python -m scripts.run_e1
+python -m scripts.run_e1 && python -m scripts.plot_e1
 
-# Plot publication figures for E1
-python -m scripts.plot_e1
-`
+# Run Experiment E2 (Allocation ablation)
+python -m scripts.run_e2 && python -m scripts.plot_e2
+
+# Run Experiment E3 (Team size scaling N=1,2,3)
+python -m scripts.run_e3 && python -m scripts.plot_e3
+
+# Run Experiment E4 (Lambda sensitivity sweep)
+python -m scripts.run_e4 && python -m scripts.plot_e4
+```
 
 ### Running Unit Tests
-`ash
+```bash
 ./scripts/test.sh
-`
+```
+EOF"
