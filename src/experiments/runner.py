@@ -1,15 +1,8 @@
-"""Headless experiment runner (CLAUDE.md Phase 3.3).
+"""Headless experiment runner (CLAUDE.md Phase 3 & Phase 4).
 
-Runs any ``(planner, map_kind, seed, n_agents)`` combination with no rendering,
-collects the §5 metrics, and writes tidy CSVs to ``results/raw/``. Supports
-parallel execution across runs.
-
-Determinism: every run is fully determined by its ``(map_kind, seed, size)`` —
-the map is seeded, the start pose is a fixed function of the map, and planning is
-deterministic. Parallelism therefore never changes results.
-
-Phase 3 is single-agent (``n_agents=1``); the signature already carries
-``n_agents`` so Phase 4 can extend it without changing callers.
+Runs any ``(planner, map_kind, seed, n_agents, allocation_method, lambda_val)``
+combination with no rendering, collects §5 metrics, and writes tidy CSVs to
+``results/raw/``. Supports parallel execution across runs.
 """
 
 from __future__ import annotations
@@ -37,6 +30,7 @@ from src.metrics.metrics import (
     nodes_expanded_stats,
     planning_wallclock_stats,
     time_to_coverage,
+    total_path_length,
 )
 from src.planning.registry import get_planner
 from src.world.map_generator import generate_map
@@ -48,6 +42,8 @@ class RunConfig:
     map_kind: str
     seed: int
     n_agents: int = 1
+    allocation_method: str = "hungarian"
+    lambda_val: float = 0.5
     size: int = 240
     resolution: float = 0.25
     n_beams: int = 360
@@ -231,15 +227,7 @@ def run_batch(
     step_stride: int = 10,
     progress: bool = True,
 ):
-    """Run many configs (optionally in parallel) and write CSV output.
-
-    Args:
-        summary_csv: one row per run (the §5 metrics).
-        steps_csv: optional coverage-over-time, downsampled every ``step_stride``
-            steps (for the coverage curves). Skipped if None.
-        n_workers: parallel processes (1 = serial, easiest to debug).
-        step_stride: downsample factor for the per-step coverage CSV.
-    """
+    """Run many configs (optionally in parallel) and write CSV output."""
     summary_csv = Path(summary_csv)
     summary_csv.parent.mkdir(parents=True, exist_ok=True)
 
@@ -249,16 +237,16 @@ def run_batch(
             for i, out in enumerate(pool.imap_unordered(_worker, configs), 1):
                 results.append(out)
                 if progress:
-                    print(f"  [{i}/{len(configs)}] {out[0].map_kind} {out[0].planner} seed={out[0].seed}")
+                    print(f"  [{i}/{len(configs)}] {out[0].map_kind} {out[0].planner} method={out[0].allocation_method} seed={out[0].seed}")
     else:
         for i, cfg in enumerate(configs, 1):
             out = run_single(cfg)
             results.append(out)
             if progress:
-                print(f"  [{i}/{len(configs)}] {out[0].map_kind} {out[0].planner} seed={out[0].seed} "
+                print(f"  [{i}/{len(configs)}] {out[0].map_kind} {out[0].planner} method={out[0].allocation_method} seed={out[0].seed} "
                       f"cov={out[0].final_coverage:.1f}% steps={out[0].steps}")
 
-    # Summary CSV.
+    # Summary CSV
     fields = list(asdict(results[0][0]).keys())
     with open(summary_csv, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
@@ -266,7 +254,7 @@ def run_batch(
         for record, _ in results:
             w.writerow(asdict(record))
 
-    # Per-step coverage CSV (downsampled).
+    # Per-step coverage CSV
     if steps_csv is not None:
         steps_csv = Path(steps_csv)
         with open(steps_csv, "w", newline="") as f:

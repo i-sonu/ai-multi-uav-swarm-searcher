@@ -52,24 +52,24 @@ class Agent:
         self.path = list(path)
         self.path_idx = 0
 
+    def clear_path(self) -> None:
+        """Clear current path so agent stays put."""
+        self.path = []
+        self.path_idx = 0
+
     def has_path(self) -> bool:
         """True if there are still waypoints left to move to."""
         return self.path_idx < len(self.path)
 
     # --------------------------------------------------------------------- #
     def step(self) -> None:
-        """Advance one waypoint along the current path.
-
-        Moves directly to the next cell centre (no interpolation — one grid cell
-        per simulation step). Updates pose, heading, and accumulated distance.
-        """
+        """Advance one waypoint along the current path."""
         if not self.has_path():
             return
         r, c = self.path[self.path_idx]
         nx = c * self.resolution
         ny = r * self.resolution
 
-        # Accumulate travelled distance and face the direction of travel.
         d = math.hypot(nx - self.x, ny - self.y)
         if d > 0:
             self.theta = math.atan2(ny - self.y, nx - self.x)
@@ -84,12 +84,7 @@ class Agent:
         n_beams: int = 360,
         max_range: float = 12.0,
     ) -> list[tuple[int, int, int]]:
-        """Cast LiDAR from the current pose; return observations to apply.
-
-        The caller applies the returned ``(row, col, value)`` list to the shared
-        occupancy grid (tagged with this agent's id), keeping sensing (here) and
-        mapping (the grid) cleanly separated.
-        """
+        """Cast LiDAR from the current pose; return observations to apply."""
         return cast_rays(
             ground_truth,
             self.pose,
