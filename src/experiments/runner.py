@@ -104,8 +104,8 @@ def run_single(cfg: RunConfig) -> tuple[RunRecord, list[float]]:
         targets = generate_targets(gt, n_targets=cfg.n_targets, seed=cfg.seed, resolution=cfg.resolution, reachable_mask=reachable)
         camera_sensor = CameraSensor(
             range_m=6.0,
-            recall_person=0.26,
-            recall_vehicle=0.40,
+            recall_person=0.51,
+            recall_vehicle=0.76,
             loc_noise_std_m=0.3
         )
         target_register = TargetRegister(dedup_threshold_m=2.0)
